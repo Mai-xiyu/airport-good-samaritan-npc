@@ -82,10 +82,6 @@
       <HintPath>$(InteropDir)\UnityEngine.UIModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="UnityEngine.IMGUIModule">
-      <HintPath>$(InteropDir)\UnityEngine.IMGUIModule.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
     <Reference Include="UnityEngine.InputLegacyModule">
       <HintPath>$(InteropDir)\UnityEngine.InputLegacyModule.dll</HintPath>
       <Private>false</Private>

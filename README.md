@@ -10,7 +10,7 @@ It adds witness-style civilian NPC behavior without changing the original NPC co
 - Existing NPC conversion plus optional extra witness spawns.
 - Direct callout: uses the game's original spotted icon plus player indicator fallback so TSA/agent targets can also be marked.
 - Area callout: uses the game's original log and NPC question indicator.
-- In-game mod menu button under the main menu Play button, with an F8 fallback shortcut.
+- Native in-game mod menu inside the original `Settings` UI, with a `Mods` tab and an F8 shortcut.
 - Shared config-menu API for other BepInEx mods.
 - Optional playable witness players. Only clients that also have the mod installed can be randomly assigned by a modded host.
 - Playable witnesses are forced onto the TSA/agent faction for win/loss handling.
@@ -55,7 +55,7 @@ Supported values:
    Airport Security Sucks! Demo/BepInEx/config/com.airport.good_samaritan.cfg
    ```
 
-The in-game main menu also adds a `Mods` button below `Play`. Press `F8` if the button cannot be found in a changed menu layout.
+The in-game `Settings` screen gets a native `Mods` tab. Press `F8` to open `Settings` directly on that tab.
 
 ## NPC Suspicion Presets
 
@@ -114,8 +114,15 @@ Other mods can register a page if they reference this plugin assembly:
 GoodSamaritanModMenuApi.RegisterPage(
     "my_mod",
     "My Mod",
-    () => GUILayout.Label("My config UI"));
+    builder =>
+    {
+        builder.AddSection("My Mod");
+        builder.AddToggle("Enabled", true, enabled => { /* save config */ });
+        builder.AddFloatSlider("Spawn chance", 0.25f, 0f, 1f, value => { /* save config */ });
+    });
 ```
+
+Pages are built with Unity uGUI controls inside the game's original `Settings` canvas, not IMGUI.
 
 ## Playable Witnesses
 
