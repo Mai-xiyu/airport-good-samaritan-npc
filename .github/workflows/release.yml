@@ -1,0 +1,78 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, for example v1.0.0"
+        required: true
+        default: "v1.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build when game references are available
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+
+          $sourceZip = Join-Path (Resolve-Path dist) "GoodSamaritanNpc-source.zip"
+          Compress-Archive -Path @(
+            "GoodSamaritanNpc.csproj",
+            "GoodSamaritanPlugin.cs",
+            "README.md",
+            ".gitignore",
+            ".github"
+          ) -DestinationPath $sourceZip -Force
+
+          $gameDir = $env:AIRPORT_SECURITY_SUCKS_DIR
+          if ([string]::IsNullOrWhiteSpace($gameDir) -and (Test-Path "refs\BepInEx\core\BepInEx.Unity.IL2CPP.dll")) {
+            $gameDir = (Resolve-Path "refs").Path
+          }
+
+          if ([string]::IsNullOrWhiteSpace($gameDir) -or !(Test-Path (Join-Path $gameDir "BepInEx\core\BepInEx.Unity.IL2CPP.dll"))) {
+            Write-Warning "Game/BepInEx reference assemblies are unavailable. The release will contain source only."
+            exit 0
+          }
+
+          dotnet build .\GoodSamaritanNpc.csproj -c Release /p:GameDir="$gameDir"
+          Copy-Item .\bin\Release\GoodSamaritanNpc.dll .\dist\GoodSamaritanNpc.dll -Force
+
+      - name: Create or update GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tag = "${{ github.ref_name }}"
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $tag = "${{ inputs.tag }}"
+          }
+
+          if ([string]::IsNullOrWhiteSpace($tag)) {
+            throw "Release tag is empty."
+          }
+
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag .\dist\* --clobber
+          } else {
+            gh release create $tag .\dist\* --title $tag --generate-notes
+          }
