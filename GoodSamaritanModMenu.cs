@@ -437,11 +437,13 @@ public sealed class GoodSamaritanMenuController : MonoBehaviour
     private SettingsUi settingsUi;
     private GameObject modsTabButtonObject;
     private GameObject modsTabRoot;
+    private Transform settingsTabParent;
     private RectTransform pageNavRoot;
     private RectTransform pageContentRoot;
     private GoodSamaritanModMenuStyle style;
     private float nextSettingsSearchTime;
     private bool registeredBuiltinPage;
+    private bool loggedWaitingForSettings;
     private int observedRevision = -1;
     private string selectedPageId;
 
@@ -496,6 +498,12 @@ public sealed class GoodSamaritanMenuController : MonoBehaviour
 
     internal void OpenModsSettings()
     {
+        var mainMenu = Object.FindObjectOfType<MainMenuUI>();
+        if (mainMenu != null)
+        {
+            mainMenu.OpenSettings();
+        }
+
         TryInstallSettingsTab();
         if (settingsUi == null || modsTabRoot == null)
         {
@@ -527,6 +535,12 @@ public sealed class GoodSamaritanMenuController : MonoBehaviour
 
         if (found == null)
         {
+            if (!loggedWaitingForSettings)
+            {
+                GoodSamaritanPlugin.LogSource.LogDebug("Waiting for SettingsUi before installing Mods tab.");
+                loggedWaitingForSettings = true;
+            }
+
             return;
         }
 
@@ -536,23 +550,28 @@ public sealed class GoodSamaritanMenuController : MonoBehaviour
         }
 
         settingsUi = found;
+        loggedWaitingForSettings = false;
         style = GoodSamaritanModMenuStyle.FromSettings(settingsUi);
         InstallSettingsTab();
     }
 
     private void InstallSettingsTab()
     {
-        if (settingsUi == null || settingsUi.generalTab == null)
+        if (settingsUi == null)
         {
             return;
         }
 
-        InstallModsTabButton();
+        if (!InstallModsTabButton())
+        {
+            return;
+        }
+
         InstallModsTabContent();
         RebuildModsPage(true);
     }
 
-    private void InstallModsTabButton()
+    private bool InstallModsTabButton()
     {
         if (modsTabButtonObject != null)
         {
@@ -560,15 +579,16 @@ public sealed class GoodSamaritanMenuController : MonoBehaviour
             modsTabButtonObject = null;
         }
 
-        var source = settingsUi.bansTabButton ?? settingsUi.playersTabButton ?? settingsUi.voiceChatTabButton ?? settingsUi.generalTabButton;
-        if (source == null || ((Component)source).transform.parent == null)
+        if (!TryFindSettingsTabSource(out var source, out var tabParent) || source == null || tabParent == null)
         {
-            return;
+            GoodSamaritanPlugin.LogSource.LogDebug("Settings UI found, but no visible tab button source was found for Mods.");
+            return false;
         }
 
-        modsTabButtonObject = Object.Instantiate(((Component)source).gameObject, ((Component)source).transform.parent);
+        settingsTabParent = tabParent;
+        modsTabButtonObject = Object.Instantiate(((Component)source).gameObject, tabParent);
         modsTabButtonObject.name = "GoodSamaritanModsTabButton";
-        modsTabButtonObject.transform.SetSiblingIndex(((Component)source).transform.GetSiblingIndex() + 1);
+        modsTabButtonObject.transform.SetAsLastSibling();
         SetAllText(modsTabButtonObject, "Mods");
 
         var button = modsTabButtonObject.GetComponent<Button>();
@@ -577,6 +597,11 @@ public sealed class GoodSamaritanMenuController : MonoBehaviour
             button.onClick.RemoveAllListeners();
             button.onClick.AddListener((UnityAction)ShowModsTab);
         }
+
+        BindOriginalTabButtons(tabParent);
+        NormalizeSettingsTabButtons(tabParent);
+        GoodSamaritanPlugin.LogSource.LogInfo($"Installed Mods tab in Settings UI under '{GetPath(tabParent)}'.");
+        return true;
     }
 
     private void InstallModsTabContent()
@@ -587,7 +612,16 @@ public sealed class GoodSamaritanMenuController : MonoBehaviour
             modsTabRoot = null;
         }
 
-        var parent = settingsUi.generalTab.transform.parent;
+        Transform parent = null;
+        if (settingsUi.generalTab != null && settingsUi.generalTab.transform.parent != null)
+        {
+            parent = settingsUi.generalTab.transform.parent;
+        }
+        else if (settingsTabParent != null && settingsTabParent.parent != null)
+        {
+            parent = settingsTabParent.parent;
+        }
+
         if (parent == null)
         {
             return;
@@ -595,7 +629,15 @@ public sealed class GoodSamaritanMenuController : MonoBehaviour
 
         modsTabRoot = GoodSamaritanModMenuBuilder.CreateUiObject("GoodSamaritanModsTab", parent);
         var rootRect = modsTabRoot.GetComponent<RectTransform>();
-        CopyRect(settingsUi.generalTab.GetComponent<RectTransform>(), rootRect);
+        if (settingsUi.generalTab != null)
+        {
+            CopyRect(settingsUi.generalTab.GetComponent<RectTransform>(), rootRect);
+        }
+        else
+        {
+            AnchorFallbackSettingsPanel(rootRect);
+        }
+
         modsTabRoot.SetActive(false);
 
         var background = modsTabRoot.AddComponent<Image>();
@@ -675,10 +717,13 @@ public sealed class GoodSamaritanMenuController : MonoBehaviour
 
     private void SetOriginalTabsActive(bool active)
     {
-        SetActive(settingsUi.generalTab, active);
-        SetActive(settingsUi.voiceChatTab, active);
-        SetActive(settingsUi.playersTab, active);
-        SetActive(settingsUi.bansTab, active);
+        if (settingsUi != null)
+        {
+            SetActive(settingsUi.generalTab, active);
+            SetActive(settingsUi.voiceChatTab, active);
+            SetActive(settingsUi.playersTab, active);
+            SetActive(settingsUi.bansTab, active);
+        }
     }
 
     private void RebuildModsPage(bool force)
@@ -797,6 +842,260 @@ public sealed class GoodSamaritanMenuController : MonoBehaviour
         {
             go.SetActive(active);
         }
+    }
+
+    [HideFromIl2Cpp]
+    private bool TryFindSettingsTabSource(out Button source, out Transform tabParent)
+    {
+        source = null;
+        tabParent = null;
+
+        Button fieldSource = settingsUi?.bansTabButton ?? settingsUi?.playersTabButton ?? settingsUi?.voiceChatTabButton ?? settingsUi?.generalTabButton;
+        if (fieldSource != null && ((Component)fieldSource).transform.parent != null)
+        {
+            source = fieldSource;
+            tabParent = ((Component)fieldSource).transform.parent;
+            return true;
+        }
+
+        var buttons = Object.FindObjectsOfType<Button>();
+        if (buttons == null)
+        {
+            return false;
+        }
+
+        Transform bestParent = null;
+        Button bestButton = null;
+        int bestScore = 0;
+
+        for (int i = 0; i < buttons.Length; i++)
+        {
+            var button = buttons[i];
+            if (button == null || !((Component)button).gameObject.activeInHierarchy)
+            {
+                continue;
+            }
+
+            string label = GetButtonLabel(((Component)button).gameObject);
+            if (!IsKnownSettingsTabLabel(label))
+            {
+                continue;
+            }
+
+            var parent = ((Component)button).transform.parent;
+            if (parent == null)
+            {
+                continue;
+            }
+
+            int score = CountKnownSettingsTabButtons(parent);
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestParent = parent;
+                bestButton = button;
+            }
+        }
+
+        if (bestButton == null || bestParent == null || bestScore < 2)
+        {
+            return false;
+        }
+
+        source = bestButton;
+        tabParent = bestParent;
+        return true;
+    }
+
+    [HideFromIl2Cpp]
+    private void BindOriginalTabButtons(Transform tabParent)
+    {
+        var buttons = tabParent.GetComponentsInChildren<Button>(true);
+        for (int i = 0; i < buttons.Length; i++)
+        {
+            var button = buttons[i];
+            if (button == null || ((Component)button).gameObject == modsTabButtonObject)
+            {
+                continue;
+            }
+
+            string label = GetButtonLabel(((Component)button).gameObject);
+            if (!IsKnownSettingsTabLabel(label))
+            {
+                continue;
+            }
+
+            button.onClick.AddListener((UnityAction)HideModsTab);
+        }
+    }
+
+    [HideFromIl2Cpp]
+    private void NormalizeSettingsTabButtons(Transform tabParent)
+    {
+        var buttons = new List<Button>();
+        var found = tabParent.GetComponentsInChildren<Button>(true);
+        for (int i = 0; i < found.Length; i++)
+        {
+            var button = found[i];
+            if (button == null)
+            {
+                continue;
+            }
+
+            if (((Component)button).transform.parent != tabParent)
+            {
+                continue;
+            }
+
+            string label = GetButtonLabel(((Component)button).gameObject);
+            if (IsKnownSettingsTabLabel(label) || string.Equals(label, "Mods", StringComparison.OrdinalIgnoreCase))
+            {
+                buttons.Add(button);
+            }
+        }
+
+        if (buttons.Count == 0)
+        {
+            return;
+        }
+
+        var parentRect = tabParent.GetComponent<RectTransform>();
+        float parentWidth = parentRect == null ? 0f : parentRect.rect.width;
+        if (parentWidth <= 1f)
+        {
+            parentWidth = 720f;
+        }
+
+        var horizontal = tabParent.GetComponent<HorizontalLayoutGroup>();
+        float spacing = horizontal == null ? 0f : horizontal.spacing;
+        float width = Mathf.Clamp((parentWidth - spacing * Mathf.Max(0, buttons.Count - 1)) / buttons.Count, 112f, 190f);
+
+        if (horizontal != null)
+        {
+            horizontal.childControlWidth = true;
+            horizontal.childForceExpandWidth = false;
+        }
+
+        for (int i = 0; i < buttons.Count; i++)
+        {
+            var rect = ((Component)buttons[i]).GetComponent<RectTransform>();
+            if (rect != null)
+            {
+                rect.sizeDelta = new Vector2(width, rect.sizeDelta.y);
+            }
+
+            var layout = ((Component)buttons[i]).GetComponent<LayoutElement>() ?? ((Component)buttons[i]).gameObject.AddComponent<LayoutElement>();
+            layout.minWidth = Mathf.Min(100f, width);
+            layout.preferredWidth = width;
+            layout.flexibleWidth = 0f;
+        }
+
+        if (horizontal == null && parentRect != null)
+        {
+            float startX = -parentWidth * parentRect.pivot.x + width * 0.5f;
+            for (int i = 0; i < buttons.Count; i++)
+            {
+                var rect = ((Component)buttons[i]).GetComponent<RectTransform>();
+                if (rect == null)
+                {
+                    continue;
+                }
+
+                rect.anchoredPosition = new Vector2(startX + i * width, rect.anchoredPosition.y);
+            }
+        }
+
+        if (parentRect != null)
+        {
+            LayoutRebuilder.ForceRebuildLayoutImmediate(parentRect);
+        }
+    }
+
+    [HideFromIl2Cpp]
+    private static int CountKnownSettingsTabButtons(Transform parent)
+    {
+        int count = 0;
+        var buttons = parent.GetComponentsInChildren<Button>(true);
+        for (int i = 0; i < buttons.Length; i++)
+        {
+            var button = buttons[i];
+            if (button == null || ((Component)button).transform.parent != parent)
+            {
+                continue;
+            }
+
+            if (IsKnownSettingsTabLabel(GetButtonLabel(((Component)button).gameObject)))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static bool IsKnownSettingsTabLabel(string label)
+    {
+        if (string.IsNullOrWhiteSpace(label))
+        {
+            return false;
+        }
+
+        label = label.Trim();
+        return string.Equals(label, "General", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(label, "Voice Chat", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(label, "Change Log", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(label, "Credits", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(label, "Players", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(label, "Bans", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(label, "??", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(label, "????", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(label, "????", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(label, "????", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string GetButtonLabel(GameObject go)
+    {
+        var tmp = go.GetComponentInChildren<TMP_Text>(true);
+        if (tmp != null)
+        {
+            return tmp.text?.Trim() ?? string.Empty;
+        }
+
+        var text = go.GetComponentInChildren<Text>(true);
+        return text == null ? string.Empty : text.text.Trim();
+    }
+
+    private static void AnchorFallbackSettingsPanel(RectTransform target)
+    {
+        if (target == null)
+        {
+            return;
+        }
+
+        target.anchorMin = new Vector2(0f, 0f);
+        target.anchorMax = new Vector2(1f, 1f);
+        target.pivot = new Vector2(0.5f, 0.5f);
+        target.offsetMin = new Vector2(0f, 86f);
+        target.offsetMax = new Vector2(0f, -70f);
+        target.localScale = Vector3.one;
+    }
+
+    private static string GetPath(Transform transform)
+    {
+        if (transform == null)
+        {
+            return "<null>";
+        }
+
+        string path = transform.name;
+        var current = transform.parent;
+        while (current != null)
+        {
+            path = current.name + "/" + path;
+            current = current.parent;
+        }
+
+        return path;
     }
 
     private static void SetAllText(GameObject go, string label)
