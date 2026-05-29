@@ -19,7 +19,7 @@ public sealed class GoodSamaritanPlugin : BasePlugin
 {
     public const string PluginGuid = "com.airport.good_samaritan";
     public const string PluginName = "GoodSamaritanNpc";
-    public const string PluginVersion = "1.1.0";
+    public const string PluginVersion = "1.2.0";
 
     internal static ManualLogSource LogSource = null!;
     internal static GoodSamaritanConfig Settings = null!;
@@ -33,10 +33,12 @@ public sealed class GoodSamaritanPlugin : BasePlugin
         ClassInjector.RegisterTypeInIl2Cpp<GoodSamaritanManager>();
         ClassInjector.RegisterTypeInIl2Cpp<GoodSamaritanWitness>();
         ClassInjector.RegisterTypeInIl2Cpp<GoodSamaritanMarker>();
+        ClassInjector.RegisterTypeInIl2Cpp<GoodSamaritanMenuController>();
 
         var managerGo = new GameObject("GoodSamaritanNpcManager");
         Object.DontDestroyOnLoad(managerGo);
         managerGo.AddComponent<GoodSamaritanManager>();
+        managerGo.AddComponent<GoodSamaritanMenuController>();
 
         new Harmony(PluginGuid).PatchAll(typeof(GoodSamaritanPlugin).Assembly);
         Log.LogInfo("Good Samaritan NPC plugin loaded.");
@@ -55,6 +57,15 @@ internal sealed class GoodSamaritanConfig
     internal readonly ConfigEntry<float> ReportCooldownSeconds;
     internal readonly ConfigEntry<float> TargetCooldownSeconds;
     internal readonly ConfigEntry<float> HighlightSeconds;
+    internal readonly ConfigEntry<string> NpcSuspicionPreset;
+    internal readonly ConfigEntry<bool> EnableDirectTargetReports;
+    internal readonly ConfigEntry<bool> DetectRevealingActions;
+    internal readonly ConfigEntry<bool> DetectCarriedContraband;
+    internal readonly ConfigEntry<bool> DetectHiddenContraband;
+    internal readonly ConfigEntry<bool> DetectCivilianAttacks;
+    internal readonly ConfigEntry<bool> DetectJumping;
+    internal readonly ConfigEntry<bool> DetectLineCutting;
+    internal readonly ConfigEntry<bool> DetectContrabandPickup;
     internal readonly ConfigEntry<bool> EnablePlayableWitnessPlayers;
     internal readonly ConfigEntry<int> MaxPlayableWitnessPlayers;
     internal readonly ConfigEntry<float> PlayableWitnessChance;
@@ -73,6 +84,15 @@ internal sealed class GoodSamaritanConfig
         WitnessFovDegrees = config.Bind("Detection", "WitnessFovDegrees", 90f, "Witness field of view for direct target callouts.");
         ReportCooldownSeconds = config.Bind("Detection", "ReportCooldownSeconds", 12f, "Cooldown per witness and global report throttle.");
         TargetCooldownSeconds = config.Bind("Detection", "TargetCooldownSeconds", 18f, "Cooldown before the same suspicious target can be called out again.");
+        NpcSuspicionPreset = config.Bind("Detection", "NpcSuspicionPreset", "Normal", "NPC suspicion preset. Supported: Easy, Normal, Hard, Custom.");
+        EnableDirectTargetReports = config.Bind("Detection", "EnableDirectTargetReports", true, "Allow witnesses to point out a directly visible suspicious player. Easy preset disables this.");
+        DetectRevealingActions = config.Bind("Detection", "DetectRevealingActions", true, "Report reveal actions such as CCTV or Cupcake reveals.");
+        DetectCarriedContraband = config.Bind("Detection", "DetectCarriedContraband", true, "Report players carrying contraband in hand or hip slot.");
+        DetectHiddenContraband = config.Bind("Detection", "DetectHiddenContraband", true, "Report players hiding contraband in bags or butt storage.");
+        DetectCivilianAttacks = config.Bind("Detection", "DetectCivilianAttacks", true, "Report attacks, shots, or tackles against civilians.");
+        DetectJumping = config.Bind("Detection", "DetectJumping", false, "Report nearby jumping players. Hard preset enables this.");
+        DetectLineCutting = config.Bind("Detection", "DetectLineCutting", false, "Report likely queue cutting near NPC lines. Hard preset enables this.");
+        DetectContrabandPickup = config.Bind("Detection", "DetectContrabandPickup", true, "Immediately report players who pick up contraband.");
         HighlightSeconds = config.Bind("Feedback", "HighlightSeconds", 4f, "Seconds to show the original spotted icon on a directly witnessed target.");
         EnablePlayableWitnessPlayers = config.Bind("Playable", "EnablePlayableWitnessPlayers", true, "Randomly assign modded players as playable witnesses when the host also has the mod.");
         MaxPlayableWitnessPlayers = config.Bind("Playable", "MaxPlayableWitnessPlayers", 1, "Maximum playable witness players per round.");
@@ -80,6 +100,70 @@ internal sealed class GoodSamaritanConfig
         EnableCustomClientMarker = config.Bind("Feedback", "EnableCustomClientMarker", true, "Show an additional local exclamation mark on modded clients.");
         EnableVoiceLine = config.Bind("Feedback", "EnableVoiceLine", true, "Play a short local witness alert sound on modded clients.");
         Language = config.Bind("Localization", "Language", "Auto", "Message language. Supported: Auto, zh-Hans, en, ja, ko, fr, de, es, ru, pt, tr, uk.");
+    }
+
+    internal bool DirectTargetReportsEnabled => !IsPreset("Easy") && EnableDirectTargetReports.Value;
+    internal bool ShouldDetectReveals => DetectRevealingActions.Value;
+    internal bool ShouldDetectCarriedContraband => DetectCarriedContraband.Value || IsPreset("Hard");
+    internal bool ShouldDetectHiddenContraband => DetectHiddenContraband.Value || IsPreset("Hard");
+    internal bool ShouldDetectCivilianAttacks => DetectCivilianAttacks.Value;
+    internal bool ShouldDetectJumping => DetectJumping.Value || IsPreset("Hard");
+    internal bool ShouldDetectLineCutting => DetectLineCutting.Value || IsPreset("Hard");
+    internal bool ShouldDetectContrabandPickup => DetectContrabandPickup.Value || IsPreset("Hard");
+
+    internal bool IsPreset(string preset)
+    {
+        return string.Equals(NpcSuspicionPreset.Value, preset, StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal void ApplyPreset(string preset)
+    {
+        if (string.Equals(preset, "Easy", StringComparison.OrdinalIgnoreCase))
+        {
+            NpcSuspicionPreset.Value = "Easy";
+            EnableDirectTargetReports.Value = false;
+            DetectRevealingActions.Value = true;
+            DetectCarriedContraband.Value = true;
+            DetectHiddenContraband.Value = false;
+            DetectCivilianAttacks.Value = true;
+            DetectJumping.Value = false;
+            DetectLineCutting.Value = false;
+            DetectContrabandPickup.Value = false;
+            ReportCooldownSeconds.Value = Mathf.Max(18f, ReportCooldownSeconds.Value);
+            TargetCooldownSeconds.Value = Mathf.Max(24f, TargetCooldownSeconds.Value);
+            return;
+        }
+
+        if (string.Equals(preset, "Hard", StringComparison.OrdinalIgnoreCase))
+        {
+            NpcSuspicionPreset.Value = "Hard";
+            EnableDirectTargetReports.Value = true;
+            DetectRevealingActions.Value = true;
+            DetectCarriedContraband.Value = true;
+            DetectHiddenContraband.Value = true;
+            DetectCivilianAttacks.Value = true;
+            DetectJumping.Value = true;
+            DetectLineCutting.Value = true;
+            DetectContrabandPickup.Value = true;
+            ReportCooldownSeconds.Value = Mathf.Min(8f, ReportCooldownSeconds.Value);
+            TargetCooldownSeconds.Value = Mathf.Min(12f, TargetCooldownSeconds.Value);
+            return;
+        }
+
+        NpcSuspicionPreset.Value = "Normal";
+        EnableDirectTargetReports.Value = true;
+        DetectRevealingActions.Value = true;
+        DetectCarriedContraband.Value = true;
+        DetectHiddenContraband.Value = true;
+        DetectCivilianAttacks.Value = true;
+        DetectJumping.Value = false;
+        DetectLineCutting.Value = false;
+        DetectContrabandPickup.Value = true;
+    }
+
+    internal void Save()
+    {
+        Enabled.ConfigFile.Save();
     }
 }
 
@@ -89,8 +173,11 @@ internal enum Msg
     RevealingAction,
     CarryingSuspiciousItem,
     HiddenContraband,
+    PickingContraband,
     AttackingCivilian,
     TacklingCivilian,
+    Jumping,
+    CuttingLine,
     DirectReport,
     AreaReport,
     AreaSecurityLine,
@@ -116,8 +203,11 @@ internal static class GoodSamaritanText
             [Msg.RevealingAction] = "暴露动作",
             [Msg.CarryingSuspiciousItem] = "携带可疑物品",
             [Msg.HiddenContraband] = "藏匿违禁品",
+            [Msg.PickingContraband] = "拾取违禁品",
             [Msg.AttackingCivilian] = "攻击平民",
             [Msg.TacklingCivilian] = "冲撞平民",
+            [Msg.Jumping] = "异常跳跃",
+            [Msg.CuttingLine] = "疑似插队",
             [Msg.DirectReport] = "有目击者指出可疑人员。",
             [Msg.AreaReport] = "有目击者举报 {0} 附近有可疑行为。",
             [Msg.AreaSecurityLine] = "安检线",
@@ -138,8 +228,11 @@ internal static class GoodSamaritanText
             [Msg.RevealingAction] = "revealing action",
             [Msg.CarryingSuspiciousItem] = "carrying suspicious item",
             [Msg.HiddenContraband] = "hidden contraband",
+            [Msg.PickingContraband] = "picking up contraband",
             [Msg.AttackingCivilian] = "attacking a civilian",
             [Msg.TacklingCivilian] = "tackling a civilian",
+            [Msg.Jumping] = "suspicious jumping",
+            [Msg.CuttingLine] = "possible line cutting",
             [Msg.DirectReport] = "A witness points out a suspicious person.",
             [Msg.AreaReport] = "A witness reports suspicious behavior near {0}.",
             [Msg.AreaSecurityLine] = "security line",
@@ -517,7 +610,7 @@ public sealed class GoodSamaritanManager : MonoBehaviour
             return;
         }
 
-        if (!IsUnityNull(actor) && IsDirectlyVisible(witness!, ((Component)actor!).transform))
+        if (GoodSamaritanPlugin.Settings.DirectTargetReportsEnabled && !IsUnityNull(actor) && IsDirectlyVisible(witness!, ((Component)actor!).transform))
         {
             ReportDirectTarget(witness!, actor!, reason);
             return;
@@ -1027,7 +1120,7 @@ public sealed class GoodSamaritanManager : MonoBehaviour
                 continue;
             }
 
-            if (CanReportTarget(player) && IsDirectlyVisible(witness, playerTransform))
+            if (GoodSamaritanPlugin.Settings.DirectTargetReportsEnabled && CanReportTarget(player) && IsDirectlyVisible(witness, playerTransform))
             {
                 return WitnessReport.Direct(player, reason);
             }
@@ -1104,7 +1197,7 @@ public sealed class GoodSamaritanManager : MonoBehaviour
                 continue;
             }
 
-            if (IsDirectlyVisible(witnessPos, witnessTransform.forward, playerTransform) && CanReportTarget(player))
+            if (GoodSamaritanPlugin.Settings.DirectTargetReportsEnabled && IsDirectlyVisible(witnessPos, witnessTransform.forward, playerTransform) && CanReportTarget(player))
             {
                 return WitnessReport.Direct(player, reason);
             }
@@ -1127,7 +1220,7 @@ public sealed class GoodSamaritanManager : MonoBehaviour
         reason = GoodSamaritanText.Get(Msg.SuspiciousBehavior);
 
         var revealingActions = ((Component)player).GetComponent<PlayerRevealingActions>();
-        if (!IsUnityNull(revealingActions))
+        if (GoodSamaritanPlugin.Settings.ShouldDetectReveals && !IsUnityNull(revealingActions))
         {
             try
             {
@@ -1145,7 +1238,7 @@ public sealed class GoodSamaritanManager : MonoBehaviour
         }
 
         var interactor = ((Component)player).GetComponent<PlayerInteractor>();
-        if (!IsUnityNull(interactor))
+        if (GoodSamaritanPlugin.Settings.ShouldDetectCarriedContraband && !IsUnityNull(interactor))
         {
             if (IsSuspiciousItem(interactor!.CurrentHeldItem) || IsSuspiciousItem(interactor.CurrentHipItem))
             {
@@ -1155,7 +1248,7 @@ public sealed class GoodSamaritanManager : MonoBehaviour
         }
 
         var buttStorage = ((Component)player).GetComponent<ButtStorage>();
-        if (!IsUnityNull(buttStorage))
+        if (GoodSamaritanPlugin.Settings.ShouldDetectHiddenContraband && !IsUnityNull(buttStorage))
         {
             try
             {
@@ -1171,10 +1264,141 @@ public sealed class GoodSamaritanManager : MonoBehaviour
             }
         }
 
+        if (GoodSamaritanPlugin.Settings.ShouldDetectLineCutting && IsLikelyCuttingLine(player))
+        {
+            reason = GoodSamaritanText.Get(Msg.CuttingLine);
+            return true;
+        }
+
         return false;
     }
 
-    private static bool IsSuspiciousItem(HeldItemInteractable item)
+    private bool IsLikelyCuttingLine(PlayerModeManager player)
+    {
+        if (IsUnityNull(player))
+        {
+            return false;
+        }
+
+        var lines = Object.FindObjectsOfType<NpcLine>();
+        if (lines == null)
+        {
+            return false;
+        }
+
+        Vector3 pos = ((Component)player).transform.position;
+        for (int i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i];
+            if (IsUnityNull(line) || line!.points == null || line.points.Count < 2 || line.occupants == null || line.occupants.Count < 2)
+            {
+                continue;
+            }
+
+            if (LineContainsPlayer(line, player))
+            {
+                continue;
+            }
+
+            float along = ClosestDistanceAlongLine(line, pos, out float lineDistSqr, out float totalLength);
+            if (totalLength <= 0.1f || lineDistSqr > 3.5f * 3.5f)
+            {
+                continue;
+            }
+
+            float frontThreshold = totalLength * 0.45f;
+            if (along > frontThreshold)
+            {
+                continue;
+            }
+
+            int occupantsBehind = 0;
+            for (int j = 0; j < line.occupants.Count; j++)
+            {
+                var occupant = line.occupants[j];
+                if (occupant == null || !occupant.IsValid)
+                {
+                    continue;
+                }
+
+                float occupantAlong = line.GetAccumulatedDistanceAlongLine(occupant);
+                if (occupantAlong > along + 1.25f)
+                {
+                    occupantsBehind++;
+                }
+            }
+
+            if (occupantsBehind >= 2)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool LineContainsPlayer(NpcLine line, PlayerModeManager player)
+    {
+        var meta = ((Component)player).GetComponent<Metater.MetaPlayer>();
+        if (IsUnityNull(meta))
+        {
+            return false;
+        }
+
+        for (int i = 0; i < line.occupants.Count; i++)
+        {
+            var occupant = line.occupants[i];
+            if (occupant != null && occupant.IsPlayer && occupant.player == meta)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static float ClosestDistanceAlongLine(NpcLine line, Vector3 position, out float distSqr, out float totalLength)
+    {
+        distSqr = float.MaxValue;
+        totalLength = 0f;
+        float bestAlong = 0f;
+        float accumulated = 0f;
+
+        for (int i = 0; i < line.points.Count - 1; i++)
+        {
+            var aTransform = line.points[i];
+            var bTransform = line.points[i + 1];
+            if (IsUnityNull(aTransform) || IsUnityNull(bTransform))
+            {
+                continue;
+            }
+
+            Vector3 a = aTransform.position;
+            Vector3 b = bTransform.position;
+            Vector3 ab = b - a;
+            float segmentLength = ab.magnitude;
+            if (segmentLength <= 0.01f)
+            {
+                continue;
+            }
+
+            float t = Mathf.Clamp01(Vector3.Dot(position - a, ab) / (segmentLength * segmentLength));
+            Vector3 closest = a + ab * t;
+            float currentDistSqr = (position - closest).sqrMagnitude;
+            if (currentDistSqr < distSqr)
+            {
+                distSqr = currentDistSqr;
+                bestAlong = accumulated + segmentLength * t;
+            }
+
+            accumulated += segmentLength;
+        }
+
+        totalLength = accumulated;
+        return bestAlong;
+    }
+
+    internal static bool IsSuspiciousItem(HeldItemInteractable item)
     {
         if (IsUnityNull(item))
         {
@@ -1273,6 +1497,7 @@ public sealed class GoodSamaritanManager : MonoBehaviour
 
         AppendLog(GoodSamaritanText.Get(Msg.DirectReport));
         ShowWitnessIndicator(witness, highlightSeconds);
+        ShowTargetIndicator(target, highlightSeconds);
 
         witness.NextReportTime = now + Mathf.Max(1f, GoodSamaritanPlugin.Settings.ReportCooldownSeconds.Value);
         nextGlobalReportTime = now + Mathf.Max(0.25f, GoodSamaritanPlugin.Settings.ReportCooldownSeconds.Value);
@@ -1299,6 +1524,7 @@ public sealed class GoodSamaritanManager : MonoBehaviour
 
         AppendLog(GoodSamaritanText.Get(Msg.DirectReport));
         ShowPlayerWitnessIndicator(witness.Player, highlightSeconds);
+        ShowTargetIndicator(target, highlightSeconds);
 
         witness.NextReportTime = now + Mathf.Max(1f, GoodSamaritanPlugin.Settings.ReportCooldownSeconds.Value);
         nextGlobalReportTime = now + Mathf.Max(0.25f, GoodSamaritanPlugin.Settings.ReportCooldownSeconds.Value);
@@ -1373,6 +1599,26 @@ public sealed class GoodSamaritanManager : MonoBehaviour
         }
 
         GoodSamaritanMarker.ShowOn((Component)player, seconds, true);
+    }
+
+    private void ShowTargetIndicator(PlayerModeManager target, float seconds)
+    {
+        if (IsUnityNull(target))
+        {
+            return;
+        }
+
+        var targetPvcm = ((Component)target).GetComponent<PlayerVoiceControlManager>();
+        if (!IsUnityNull(targetPvcm))
+        {
+            var carrier = FindRpcCarrier();
+            if (!IsUnityNull(carrier))
+            {
+                carrier!.RpcPlayerShowIndicatorQuestion(targetPvcm);
+            }
+        }
+
+        GoodSamaritanMarker.ShowOn((Component)target, seconds, false);
     }
 
     private static void AppendLog(string message)
@@ -1896,6 +2142,11 @@ internal static class RaycastWeaponSmugglerAttackedCivilianPatch
     {
         try
         {
+            if (!GoodSamaritanPlugin.Settings.ShouldDetectCivilianAttacks)
+            {
+                return;
+            }
+
             var component = (Component)weapon;
             var pmm = component.GetComponent<PlayerModeManager>() ?? component.GetComponentInParent<PlayerModeManager>();
             GoodSamaritanManager.Instance?.NotifySuspiciousAction(pmm, component.transform.position, reason);
@@ -1914,6 +2165,11 @@ internal static class RaycastWeaponJailSelfForNpcHitPatch
     {
         try
         {
+            if (!GoodSamaritanPlugin.Settings.ShouldDetectCivilianAttacks)
+            {
+                return;
+            }
+
             var component = (Component)__instance;
             var pmm = component.GetComponent<PlayerModeManager>() ?? component.GetComponentInParent<PlayerModeManager>();
             GoodSamaritanManager.Instance?.NotifySuspiciousAction(pmm, component.transform.position, GoodSamaritanText.Get(Msg.AttackingCivilian));
@@ -1932,6 +2188,11 @@ internal static class PlayerTackleNpcPatch
     {
         try
         {
+            if (!GoodSamaritanPlugin.Settings.ShouldDetectCivilianAttacks)
+            {
+                return;
+            }
+
             var component = (Component)__instance;
             var pmm = component.GetComponent<PlayerModeManager>() ?? component.GetComponentInParent<PlayerModeManager>();
             Vector3 position = GoodSamaritanManager.IsUnityNull(targetNpc)
@@ -1942,6 +2203,52 @@ internal static class PlayerTackleNpcPatch
         catch (Exception ex)
         {
             GoodSamaritanPlugin.LogSource.LogDebug($"PlayerTackle NPC patch failed: {ex.Message}");
+        }
+    }
+}
+
+[HarmonyPatch(typeof(Metater.MetaPlayer), nameof(Metater.MetaPlayer.UserCode_CmdJump__Quaternion))]
+internal static class MetaPlayerJumpPatch
+{
+    private static void Postfix(Metater.MetaPlayer __instance)
+    {
+        try
+        {
+            if (!GoodSamaritanPlugin.Settings.ShouldDetectJumping)
+            {
+                return;
+            }
+
+            var component = (Component)__instance;
+            var pmm = component.GetComponent<PlayerModeManager>() ?? component.GetComponentInParent<PlayerModeManager>();
+            GoodSamaritanManager.Instance?.NotifySuspiciousAction(pmm, component.transform.position, GoodSamaritanText.Get(Msg.Jumping));
+        }
+        catch (Exception ex)
+        {
+            GoodSamaritanPlugin.LogSource.LogDebug($"MetaPlayer jump patch failed: {ex.Message}");
+        }
+    }
+}
+
+[HarmonyPatch(typeof(HeldItemInteractable), nameof(HeldItemInteractable.ServerOnPickedUp))]
+internal static class HeldItemInteractablePickedUpPatch
+{
+    private static void Postfix(HeldItemInteractable __instance, Interactor interactor)
+    {
+        try
+        {
+            if (!GoodSamaritanPlugin.Settings.ShouldDetectContrabandPickup || !GoodSamaritanManager.IsSuspiciousItem(__instance) || GoodSamaritanManager.IsUnityNull(interactor))
+            {
+                return;
+            }
+
+            var component = (Component)interactor;
+            var pmm = component.GetComponent<PlayerModeManager>() ?? component.GetComponentInParent<PlayerModeManager>();
+            GoodSamaritanManager.Instance?.NotifySuspiciousAction(pmm, component.transform.position, GoodSamaritanText.Get(Msg.PickingContraband));
+        }
+        catch (Exception ex)
+        {
+            GoodSamaritanPlugin.LogSource.LogDebug($"Held item pickup patch failed: {ex.Message}");
         }
     }
 }

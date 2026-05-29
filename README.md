@@ -8,8 +8,10 @@ It adds witness-style civilian NPC behavior without changing the original NPC co
 
 - Server-authoritative witness NPC logic.
 - Existing NPC conversion plus optional extra witness spawns.
-- Direct callout: uses the game's original spotted icon on the suspicious target.
+- Direct callout: uses the game's original spotted icon plus player indicator fallback so TSA/agent targets can also be marked.
 - Area callout: uses the game's original log and NPC question indicator.
+- In-game mod menu button under the main menu Play button, with an F8 fallback shortcut.
+- Shared config-menu API for other BepInEx mods.
 - Optional playable witness players. Only clients that also have the mod installed can be randomly assigned by a modded host.
 - Playable witnesses are forced onto the TSA/agent faction for win/loss handling.
 - Modded clients additionally show a local exclamation marker and play a short local alert sound.
@@ -53,6 +55,15 @@ Supported values:
    Airport Security Sucks! Demo/BepInEx/config/com.airport.good_samaritan.cfg
    ```
 
+The in-game main menu also adds a `Mods` button below `Play`. Press `F8` if the button cannot be found in a changed menu layout.
+
+## NPC Suspicion Presets
+
+- `Easy`: lower false positives, area reports only, no direct player pointing.
+- `Normal`: core behavior, including contraband, hidden contraband, reveal actions, civilian attacks, and contraband pickup.
+- `Hard`: strict behavior, also reports suspicious jumping and likely queue cutting.
+- `Custom`: manual toggles from the in-game menu or config file.
+
 ## Build Locally
 
 The project includes the BepInEx and generated IL2CPP interop reference DLLs under `lib/BepInEx`, so GitHub Actions and a clean local checkout can build the plugin directly.
@@ -94,6 +105,17 @@ Release assets:
 - `GoodSamaritanNpc-vX.Y.Z.zip`
 
 The workflow builds against `lib/BepInEx` and uploads the compiled plugin, not only source code.
+
+## Mod Menu API
+
+Other mods can register a page if they reference this plugin assembly:
+
+```csharp
+GoodSamaritanModMenuApi.RegisterPage(
+    "my_mod",
+    "My Mod",
+    () => GUILayout.Label("My config UI"));
+```
 
 ## Playable Witnesses
 
