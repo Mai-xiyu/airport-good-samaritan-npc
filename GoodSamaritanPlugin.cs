@@ -18,7 +18,7 @@ public sealed class GoodSamaritanPlugin : BasePlugin
 {
     public const string PluginGuid = "com.airport.good_samaritan";
     public const string PluginName = "GoodSamaritanNpc";
-    public const string PluginVersion = "1.0.0";
+    public const string PluginVersion = "1.0.1";
 
     internal static ManualLogSource LogSource = null!;
     internal static GoodSamaritanConfig Settings = null!;

@@ -25,35 +25,37 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: "10.0.x"
+          dotnet-version: "6.0.x"
 
-      - name: Build when game references are available
+      - name: Build release package
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force -Path dist | Out-Null
 
-          $sourceZip = Join-Path (Resolve-Path dist) "GoodSamaritanNpc-source.zip"
-          Compress-Archive -Path @(
-            "GoodSamaritanNpc.csproj",
-            "GoodSamaritanPlugin.cs",
-            "README.md",
-            ".gitignore",
-            ".github"
-          ) -DestinationPath $sourceZip -Force
-
-          $gameDir = $env:AIRPORT_SECURITY_SUCKS_DIR
-          if ([string]::IsNullOrWhiteSpace($gameDir) -and (Test-Path "refs\BepInEx\core\BepInEx.Unity.IL2CPP.dll")) {
-            $gameDir = (Resolve-Path "refs").Path
+          $tag = "${{ github.ref_name }}"
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $tag = "${{ inputs.tag }}"
           }
 
-          if ([string]::IsNullOrWhiteSpace($gameDir) -or !(Test-Path (Join-Path $gameDir "BepInEx\core\BepInEx.Unity.IL2CPP.dll"))) {
-            Write-Warning "Game/BepInEx reference assemblies are unavailable. The release will contain source only."
-            exit 0
+          if ([string]::IsNullOrWhiteSpace($tag)) {
+            throw "Release tag is empty."
           }
 
-          dotnet build .\GoodSamaritanNpc.csproj -c Release /p:GameDir="$gameDir"
+          $referenceRoot = (Resolve-Path "lib").Path
+          $bepInExIl2Cpp = Join-Path $referenceRoot "BepInEx\core\BepInEx.Unity.IL2CPP.dll"
+          $gameAssembly = Join-Path $referenceRoot "BepInEx\interop\Assembly-CSharp.dll"
+
+          if (!(Test-Path $bepInExIl2Cpp) -or !(Test-Path $gameAssembly)) {
+            throw "lib/BepInEx reference assemblies are missing."
+          }
+
+          dotnet build .\GoodSamaritanNpc.csproj -c Release /p:ReferenceRoot="$referenceRoot"
           Copy-Item .\bin\Release\GoodSamaritanNpc.dll .\dist\GoodSamaritanNpc.dll -Force
+          Compress-Archive -Path @(
+            ".\bin\Release\GoodSamaritanNpc.dll",
+            ".\README.md"
+          ) -DestinationPath ".\dist\GoodSamaritanNpc-$tag.zip" -Force
 
       - name: Create or update GitHub release
         shell: pwsh

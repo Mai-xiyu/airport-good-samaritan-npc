@@ -3,17 +3,22 @@
     <TargetFramework>net6.0</TargetFramework>
     <AssemblyName>GoodSamaritanNpc</AssemblyName>
     <RootNamespace>GoodSamaritanNpc</RootNamespace>
-    <LangVersion>latest</LangVersion>
+    <LangVersion>10.0</LangVersion>
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <DefaultGameDir>D:\Steam\steamapps\common\Airport Security Sucks! Demo</DefaultGameDir>
+    <ReferenceRoot Condition="'$(ReferenceRoot)' == '' and '$(GameDir)' != ''">$(GameDir)</ReferenceRoot>
+    <ReferenceRoot Condition="'$(ReferenceRoot)' == '' and '$(AIRPORT_SECURITY_SUCKS_DIR)' != ''">$(AIRPORT_SECURITY_SUCKS_DIR)</ReferenceRoot>
+    <ReferenceRoot Condition="'$(ReferenceRoot)' == '' and Exists('$(MSBuildProjectDirectory)\lib\BepInEx\core\BepInEx.Unity.IL2CPP.dll')">$(MSBuildProjectDirectory)\lib</ReferenceRoot>
+    <ReferenceRoot Condition="'$(ReferenceRoot)' == ''">$(DefaultGameDir)</ReferenceRoot>
     <GameDir Condition="'$(GameDir)' == '' and '$(AIRPORT_SECURITY_SUCKS_DIR)' != ''">$(AIRPORT_SECURITY_SUCKS_DIR)</GameDir>
-    <GameDir Condition="'$(GameDir)' == ''">D:\Steam\steamapps\common\Airport Security Sucks! Demo</GameDir>
-    <BepInExCore>$(GameDir)\BepInEx\core</BepInExCore>
-    <InteropDir>$(GameDir)\BepInEx\interop</InteropDir>
-    <PluginsDir>$(GameDir)\BepInEx\plugins</PluginsDir>
+    <GameDir Condition="'$(GameDir)' == '' and Exists('$(DefaultGameDir)\BepInEx\plugins')">$(DefaultGameDir)</GameDir>
+    <BepInExCore>$(ReferenceRoot)\BepInEx\core</BepInExCore>
+    <InteropDir>$(ReferenceRoot)\BepInEx\interop</InteropDir>
+    <PluginsDir Condition="'$(PluginsDir)' == '' and '$(GameDir)' != ''">$(GameDir)\BepInEx\plugins</PluginsDir>
   </PropertyGroup>
 
   <ItemGroup>
@@ -84,7 +89,7 @@
   </ItemGroup>
 
   <Target Name="ValidateGameReferences" BeforeTargets="ResolveReferences">
-    <Error Condition="!Exists('$(BepInExCore)\BepInEx.Unity.IL2CPP.dll')" Text="BepInEx IL2CPP references were not found. Set GameDir or AIRPORT_SECURITY_SUCKS_DIR to the Airport Security Sucks! Demo install folder." />
+    <Error Condition="!Exists('$(BepInExCore)\BepInEx.Unity.IL2CPP.dll')" Text="BepInEx IL2CPP references were not found. Keep lib/BepInEx in the repository or set ReferenceRoot, GameDir, or AIRPORT_SECURITY_SUCKS_DIR to the Airport Security Sucks! Demo install folder." />
   </Target>
 
   <Target Name="CopyToBepInExPlugins" AfterTargets="Build" Condition="Exists('$(PluginsDir)')">

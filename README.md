@@ -53,7 +53,7 @@ Supported values:
 
 ## Build Locally
 
-The project needs the game's generated BepInEx interop assemblies. They are not included in this repository.
+The project includes the BepInEx and generated IL2CPP interop reference DLLs under `lib/BepInEx`, so GitHub Actions and a clean local checkout can build the plugin directly.
 
 Default build path:
 
@@ -76,13 +76,19 @@ dotnet build .\GoodSamaritanNpc.csproj -c Release
 
 On successful local build, the DLL is copied to `BepInEx/plugins` when the plugin directory exists.
 
+To force a different reference folder without changing the install target:
+
+```powershell
+dotnet build .\GoodSamaritanNpc.csproj -c Release /p:ReferenceRoot="D:\Path\To\ReferenceRoot"
+```
+
 ## Release Workflow
 
 `.github/workflows/release.yml` creates a GitHub release on `v*` tags or manual dispatch.
 
-Important constraint: GitHub-hosted runners do not have the game's IL2CPP interop assemblies. The workflow always publishes a source package. It also publishes `GoodSamaritanNpc.dll` when either:
+Release assets:
 
-- a self-hosted Windows runner has `AIRPORT_SECURITY_SUCKS_DIR` pointing at the game install, or
-- a private `refs/` folder exists in the runner workspace with the required BepInEx/core and BepInEx/interop DLLs.
+- `GoodSamaritanNpc.dll`
+- `GoodSamaritanNpc-vX.Y.Z.zip`
 
-Do not commit game DLLs or generated interop DLLs to a public repository.
+The workflow builds against `lib/BepInEx` and uploads the compiled plugin, not only source code.
