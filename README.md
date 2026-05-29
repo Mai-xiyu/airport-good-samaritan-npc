@@ -10,6 +10,8 @@ It adds witness-style civilian NPC behavior without changing the original NPC co
 - Existing NPC conversion plus optional extra witness spawns.
 - Direct callout: uses the game's original spotted icon on the suspicious target.
 - Area callout: uses the game's original log and NPC question indicator.
+- Optional playable witness players. Only clients that also have the mod installed can be randomly assigned by a modded host.
+- Playable witnesses are forced onto the TSA/agent faction for win/loss handling.
 - Modded clients additionally show a local exclamation marker and play a short local alert sound.
 - TSA attacks against witness NPCs still use the original ordinary-NPC attack punishment path.
 - Localized report text.
@@ -92,3 +94,13 @@ Release assets:
 - `GoodSamaritanNpc-vX.Y.Z.zip`
 
 The workflow builds against `lib/BepInEx` and uploads the compiled plugin, not only source code.
+
+## Playable Witnesses
+
+Playable witness assignment uses a mod-to-mod handshake over an existing Mirror command. A modded client periodically sends a special no-op voice command payload. A modded host intercepts that payload and marks the player as eligible. Unmodded clients never send it, and unmodded hosts do not run the assignment logic.
+
+Relevant config keys:
+
+- `EnablePlayableWitnessPlayers`
+- `MaxPlayableWitnessPlayers`
+- `PlayableWitnessChance`

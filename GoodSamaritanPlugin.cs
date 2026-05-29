@@ -5,6 +5,7 @@ using BepInEx.Configuration;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
+using Il2CppInterop.Runtime.Attributes;
 using Il2CppInterop.Runtime.Injection;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Mirror;
@@ -18,7 +19,7 @@ public sealed class GoodSamaritanPlugin : BasePlugin
 {
     public const string PluginGuid = "com.airport.good_samaritan";
     public const string PluginName = "GoodSamaritanNpc";
-    public const string PluginVersion = "1.0.1";
+    public const string PluginVersion = "1.1.0";
 
     internal static ManualLogSource LogSource = null!;
     internal static GoodSamaritanConfig Settings = null!;
@@ -54,6 +55,9 @@ internal sealed class GoodSamaritanConfig
     internal readonly ConfigEntry<float> ReportCooldownSeconds;
     internal readonly ConfigEntry<float> TargetCooldownSeconds;
     internal readonly ConfigEntry<float> HighlightSeconds;
+    internal readonly ConfigEntry<bool> EnablePlayableWitnessPlayers;
+    internal readonly ConfigEntry<int> MaxPlayableWitnessPlayers;
+    internal readonly ConfigEntry<float> PlayableWitnessChance;
     internal readonly ConfigEntry<bool> EnableCustomClientMarker;
     internal readonly ConfigEntry<bool> EnableVoiceLine;
     internal readonly ConfigEntry<string> Language;
@@ -70,6 +74,9 @@ internal sealed class GoodSamaritanConfig
         ReportCooldownSeconds = config.Bind("Detection", "ReportCooldownSeconds", 12f, "Cooldown per witness and global report throttle.");
         TargetCooldownSeconds = config.Bind("Detection", "TargetCooldownSeconds", 18f, "Cooldown before the same suspicious target can be called out again.");
         HighlightSeconds = config.Bind("Feedback", "HighlightSeconds", 4f, "Seconds to show the original spotted icon on a directly witnessed target.");
+        EnablePlayableWitnessPlayers = config.Bind("Playable", "EnablePlayableWitnessPlayers", true, "Randomly assign modded players as playable witnesses when the host also has the mod.");
+        MaxPlayableWitnessPlayers = config.Bind("Playable", "MaxPlayableWitnessPlayers", 1, "Maximum playable witness players per round.");
+        PlayableWitnessChance = config.Bind("Playable", "PlayableWitnessChance", 0.25f, "Chance for each eligible modded player to become a playable witness.");
         EnableCustomClientMarker = config.Bind("Feedback", "EnableCustomClientMarker", true, "Show an additional local exclamation mark on modded clients.");
         EnableVoiceLine = config.Bind("Feedback", "EnableVoiceLine", true, "Play a short local witness alert sound on modded clients.");
         Language = config.Bind("Localization", "Language", "Auto", "Message language. Supported: Auto, zh-Hans, en, ja, ko, fr, de, es, ru, pt, tr, uk.");
@@ -421,19 +428,29 @@ internal static class GoodSamaritanText
 
 public sealed class GoodSamaritanManager : MonoBehaviour
 {
+    private const float ClientHelloRadius = -7391.25f;
+    private const string ClientHelloToken = "GSNPC_HELLO_1";
+
     internal static GoodSamaritanManager Instance;
 
     private readonly List<GoodSamaritanWitness> witnesses = new();
+    private readonly List<PlayerWitnessState> playerWitnesses = new();
     private readonly HashSet<int> evaluatedNpcIds = new();
+    private readonly HashSet<uint> moddedPlayerNetIds = new();
+    private readonly HashSet<uint> playableWitnessNetIds = new();
     private readonly Dictionary<int, double> targetCooldownUntil = new();
     private readonly List<NamedArea> namedAreas = new();
     private double nextGlobalReportTime;
+    private double nextPlayerAssignmentTime;
     private float scanTimer;
+    private float clientHelloTimer;
     private float areaRefreshTimer;
     private int lastNpcManagerInstanceId;
     private int extraSpawnedThisManager;
     private int pendingForcedWitnessMarks;
     private bool serverWasActive;
+    private bool lastGameStarted;
+    private bool playableWitnessesAssignedThisRound;
 
     public GoodSamaritanManager(IntPtr ptr) : base(ptr)
     {
@@ -459,6 +476,8 @@ public sealed class GoodSamaritanManager : MonoBehaviour
             return;
         }
 
+        TrySendClientCapabilityHello();
+
         if (!NetworkServer.active)
         {
             if (serverWasActive)
@@ -470,6 +489,7 @@ public sealed class GoodSamaritanManager : MonoBehaviour
         }
 
         serverWasActive = true;
+        UpdatePlayableWitnessAssignments();
         EnsureServerNpcManagerState();
         EnsureWitnessPopulation();
 
@@ -506,19 +526,118 @@ public sealed class GoodSamaritanManager : MonoBehaviour
         ReportArea(witness!, eventPosition, reason);
     }
 
+    internal void RegisterModdedPlayer(PlayerModeManager player)
+    {
+        if (!GoodSamaritanPlugin.Settings.Enabled.Value ||
+            !GoodSamaritanPlugin.Settings.EnablePlayableWitnessPlayers.Value ||
+            !NetworkServer.active ||
+            IsUnityNull(player))
+        {
+            return;
+        }
+
+        uint netId = player!.netId;
+        if (netId == 0u)
+        {
+            return;
+        }
+
+        if (moddedPlayerNetIds.Add(netId))
+        {
+            GoodSamaritanPlugin.LogSource.LogDebug($"Registered modded player capability for netId {netId}.");
+        }
+    }
+
+    internal static bool IsClientCapabilityHello(float radius, Il2CppStringArray translations)
+    {
+        if (radius > ClientHelloRadius + 0.01f || radius < ClientHelloRadius - 0.01f || translations == null || translations.Length == 0)
+        {
+            return false;
+        }
+
+        return string.Equals(translations[0], ClientHelloToken, StringComparison.Ordinal);
+    }
+
+    private void TrySendClientCapabilityHello()
+    {
+        if (!GoodSamaritanPlugin.Settings.EnablePlayableWitnessPlayers.Value || !NetworkClient.active)
+        {
+            return;
+        }
+
+        clientHelloTimer -= Time.deltaTime;
+        if (clientHelloTimer > 0f)
+        {
+            return;
+        }
+
+        clientHelloTimer = 5f;
+
+        var pvcm = FindLocalVoiceControlManager();
+        if (IsUnityNull(pvcm))
+        {
+            return;
+        }
+
+        try
+        {
+            var translations = new Il2CppStringArray(2);
+            translations[0] = ClientHelloToken;
+            translations[1] = GoodSamaritanPlugin.PluginVersion;
+            pvcm!.CmdVoiceCommand(((Component)pvcm).transform.position, (VoskCommandType)0, translations, ClientHelloRadius);
+
+            if (NetworkServer.active)
+            {
+                var pmm = ((Component)pvcm).GetComponent<PlayerModeManager>() ?? ((Component)pvcm).GetComponentInParent<PlayerModeManager>();
+                RegisterModdedPlayer(pmm);
+            }
+        }
+        catch (Exception ex)
+        {
+            GoodSamaritanPlugin.LogSource.LogDebug($"Playable witness handshake failed: {ex.Message}");
+        }
+    }
+
+    private PlayerVoiceControlManager FindLocalVoiceControlManager()
+    {
+        var managers = Object.FindObjectsOfType<PlayerVoiceControlManager>();
+        if (managers == null)
+        {
+            return null;
+        }
+
+        for (int i = 0; i < managers.Length; i++)
+        {
+            var manager = managers[i];
+            if (!IsUnityNull(manager) && manager!.isLocalPlayer)
+            {
+                return manager;
+            }
+        }
+
+        return null;
+    }
+
     private void ResetServerState()
     {
         witnesses.Clear();
+        playerWitnesses.Clear();
         evaluatedNpcIds.Clear();
+        moddedPlayerNetIds.Clear();
+        playableWitnessNetIds.Clear();
         targetCooldownUntil.Clear();
         namedAreas.Clear();
         nextGlobalReportTime = 0d;
+        nextPlayerAssignmentTime = 0d;
         scanTimer = 0f;
+        clientHelloTimer = 0f;
         areaRefreshTimer = 0f;
         lastNpcManagerInstanceId = 0;
         extraSpawnedThisManager = 0;
         pendingForcedWitnessMarks = 0;
         serverWasActive = false;
+        lastGameStarted = false;
+        playableWitnessesAssignedThisRound = false;
     }
 
     private void EnsureServerNpcManagerState()
@@ -542,6 +661,196 @@ public sealed class GoodSamaritanManager : MonoBehaviour
         pendingForcedWitnessMarks = 0;
         lastNpcManagerInstanceId = managerId;
         RefreshNamedAreas();
+    }
+
+    private void UpdatePlayableWitnessAssignments()
+    {
+        if (!GoodSamaritanPlugin.Settings.EnablePlayableWitnessPlayers.Value)
+        {
+            CleanupPlayableWitnesses(true);
+            return;
+        }
+
+        CleanupPlayableWitnesses(false);
+
+        var gameManager = GameManager.Instance;
+        bool gameStarted = !IsUnityNull(gameManager) && gameManager!.GameStartedSyncVar;
+        if (!gameStarted)
+        {
+            lastGameStarted = false;
+            playableWitnessesAssignedThisRound = false;
+            playableWitnessNetIds.Clear();
+            playerWitnesses.Clear();
+            return;
+        }
+
+        if (!lastGameStarted)
+        {
+            playableWitnessesAssignedThisRound = false;
+            nextPlayerAssignmentTime = Time.timeAsDouble + 1.5d;
+        }
+
+        lastGameStarted = true;
+        if (playableWitnessesAssignedThisRound || Time.timeAsDouble < nextPlayerAssignmentTime)
+        {
+            return;
+        }
+
+        playableWitnessesAssignedThisRound = AssignPlayableWitnessPlayers();
+        if (!playableWitnessesAssignedThisRound)
+        {
+            nextPlayerAssignmentTime = Time.timeAsDouble + 2d;
+        }
+    }
+
+    private bool AssignPlayableWitnessPlayers()
+    {
+        int maxPlayers = Mathf.Max(0, GoodSamaritanPlugin.Settings.MaxPlayableWitnessPlayers.Value);
+        if (maxPlayers <= 0 || moddedPlayerNetIds.Count == 0)
+        {
+            return false;
+        }
+
+        float chance = Mathf.Clamp01(GoodSamaritanPlugin.Settings.PlayableWitnessChance.Value);
+        if (chance <= 0f)
+        {
+            return true;
+        }
+
+        var players = Object.FindObjectsOfType<PlayerModeManager>();
+        if (players == null || players.Length == 0)
+        {
+            return false;
+        }
+
+        var candidates = new List<PlayerModeManager>();
+        for (int i = 0; i < players.Length; i++)
+        {
+            var player = players[i];
+            if (IsUnityNull(player))
+            {
+                continue;
+            }
+
+            uint netId = player!.netId;
+            if (netId == 0u || playableWitnessNetIds.Contains(netId) || !moddedPlayerNetIds.Contains(netId))
+            {
+                continue;
+            }
+
+            if (!player.NetworkisAgent && CountSmugglerPlayers(players) <= 1)
+            {
+                continue;
+            }
+
+            candidates.Add(player);
+        }
+
+        Shuffle(candidates);
+        if (candidates.Count == 0)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < candidates.Count && playerWitnesses.Count < maxPlayers; i++)
+        {
+            if (UnityEngine.Random.value > chance)
+            {
+                continue;
+            }
+
+            AddPlayableWitness(candidates[i]);
+        }
+
+        return true;
+    }
+
+    private void AddPlayableWitness(PlayerModeManager player)
+    {
+        if (IsUnityNull(player))
+        {
+            return;
+        }
+
+        uint netId = player!.netId;
+        if (netId == 0u || playableWitnessNetIds.Contains(netId))
+        {
+            return;
+        }
+
+        if (!player.NetworkisAgent)
+        {
+            player.ServerSetIsAgent(true);
+        }
+
+        playableWitnessNetIds.Add(netId);
+        playerWitnesses.Add(new PlayerWitnessState(player)
+        {
+            NextReportTime = Time.timeAsDouble + UnityEngine.Random.Range(1f, 4f)
+        });
+
+        ShowPlayerWitnessIndicator(player, Mathf.Max(2f, GoodSamaritanPlugin.Settings.HighlightSeconds.Value));
+        GoodSamaritanPlugin.LogSource.LogInfo($"Assigned playable witness player netId {netId}.");
+    }
+
+    private void CleanupPlayableWitnesses(bool clearAll)
+    {
+        if (clearAll)
+        {
+            playerWitnesses.Clear();
+            playableWitnessNetIds.Clear();
+            return;
+        }
+
+        var alive = new HashSet<uint>();
+        var players = Object.FindObjectsOfType<PlayerModeManager>();
+        if (players != null)
+        {
+            for (int i = 0; i < players.Length; i++)
+            {
+                var player = players[i];
+                if (!IsUnityNull(player) && player!.netId != 0u)
+                {
+                    alive.Add(player.netId);
+                }
+            }
+        }
+
+        moddedPlayerNetIds.RemoveWhere(id => !alive.Contains(id));
+        playableWitnessNetIds.RemoveWhere(id => !alive.Contains(id));
+
+        for (int i = playerWitnesses.Count - 1; i >= 0; i--)
+        {
+            var witness = playerWitnesses[i];
+            if (witness == null || IsUnityNull(witness.Player) || !playableWitnessNetIds.Contains(witness.Player.netId))
+            {
+                playerWitnesses.RemoveAt(i);
+            }
+        }
+    }
+
+    private static int CountSmugglerPlayers(Il2CppArrayBase<PlayerModeManager> players)
+    {
+        int count = 0;
+        for (int i = 0; i < players.Length; i++)
+        {
+            var player = players[i];
+            if (!IsUnityNull(player) && !player!.NetworkisAgent)
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static void Shuffle(List<PlayerModeManager> players)
+    {
+        for (int i = players.Count - 1; i > 0; i--)
+        {
+            int j = UnityEngine.Random.Range(0, i + 1);
+            (players[i], players[j]) = (players[j], players[i]);
+        }
     }
 
     private void EnsureWitnessPopulation()
@@ -680,6 +989,8 @@ public sealed class GoodSamaritanManager : MonoBehaviour
                 ReportArea(witness, report.AreaPosition, report.Reason);
             }
         }
+
+        ScanPlayerWitnesses();
     }
 
     private WitnessReport FindReportForWitness(GoodSamaritanWitness witness)
@@ -717,6 +1028,83 @@ public sealed class GoodSamaritanManager : MonoBehaviour
             }
 
             if (CanReportTarget(player) && IsDirectlyVisible(witness, playerTransform))
+            {
+                return WitnessReport.Direct(player, reason);
+            }
+
+            if (distSqr < bestAreaDistSqr)
+            {
+                areaCandidate = player;
+                areaReason = reason;
+                bestAreaDistSqr = distSqr;
+            }
+        }
+
+        return areaCandidate == null
+            ? default
+            : WitnessReport.Area(((Component)areaCandidate).transform.position, areaReason);
+    }
+
+    private void ScanPlayerWitnesses()
+    {
+        CleanupPlayableWitnesses(false);
+        for (int i = 0; i < playerWitnesses.Count; i++)
+        {
+            var witness = playerWitnesses[i];
+            if (!CanPlayerWitnessReport(witness))
+            {
+                continue;
+            }
+
+            var report = FindReportForPlayerWitness(witness);
+            if (report.Target != null)
+            {
+                ReportDirectTarget(witness, report.Target, report.Reason);
+            }
+            else if (report.HasArea)
+            {
+                ReportArea(witness, report.AreaPosition, report.Reason);
+            }
+        }
+    }
+
+    [HideFromIl2Cpp]
+    private WitnessReport FindReportForPlayerWitness(PlayerWitnessState witness)
+    {
+        var players = Object.FindObjectsOfType<PlayerModeManager>();
+        if (players == null || IsUnityNull(witness.Player))
+        {
+            return default;
+        }
+
+        Transform witnessTransform = ((Component)witness.Player).transform;
+        Vector3 witnessPos = GetPlayerEyePosition(witness.Player);
+        float radius = Mathf.Max(1f, GoodSamaritanPlugin.Settings.WitnessRadius.Value);
+        PlayerModeManager areaCandidate = null;
+        string areaReason = GoodSamaritanText.Get(Msg.SuspiciousBehavior);
+        float bestAreaDistSqr = float.MaxValue;
+
+        for (int i = 0; i < players.Length; i++)
+        {
+            var player = players[i];
+            if (IsUnityNull(player) || player == witness.Player)
+            {
+                continue;
+            }
+
+            Transform playerTransform = ((Component)player!).transform;
+            float distSqr = (playerTransform.position - witnessPos).sqrMagnitude;
+            if (distSqr > radius * radius)
+            {
+                continue;
+            }
+
+            if (!TryGetSuspicionReason(player, out string reason))
+            {
+                continue;
+            }
+
+            if (IsDirectlyVisible(witnessPos, witnessTransform.forward, playerTransform) && CanReportTarget(player))
             {
                 return WitnessReport.Direct(player, reason);
             }
@@ -831,6 +1219,35 @@ public sealed class GoodSamaritanManager : MonoBehaviour
         return now >= witness.NextReportTime && now >= nextGlobalReportTime;
     }
 
+    [HideFromIl2Cpp]
+    private bool CanPlayerWitnessReport(PlayerWitnessState witness)
+    {
+        if (witness == null || IsUnityNull(witness.Player))
+        {
+            return false;
+        }
+
+        uint netId = witness.Player.netId;
+        if (netId == 0u || !playableWitnessNetIds.Contains(netId) || !moddedPlayerNetIds.Contains(netId))
+        {
+            return false;
+        }
+
+        if (!witness.Player.NetworkisAgent)
+        {
+            witness.Player.ServerSetIsAgent(true);
+        }
+
+        var ragdoll = ((Component)witness.Player).GetComponent<PlayerRagdollManager>();
+        if (!IsUnityNull(ragdoll) && ragdoll!.IsRagdollActive)
+        {
+            return false;
+        }
+
+        double now = Time.timeAsDouble;
+        return now >= witness.NextReportTime && now >= nextGlobalReportTime;
+    }
+
     private bool CanReportTarget(PlayerModeManager target)
     {
         int id = ((Object)(object)target).GetInstanceID();
@@ -863,6 +1280,32 @@ public sealed class GoodSamaritanManager : MonoBehaviour
         GoodSamaritanPlugin.LogSource.LogDebug($"Direct witness report fired for {reason}.");
     }
 
+    [HideFromIl2Cpp]
+    private void ReportDirectTarget(PlayerWitnessState witness, PlayerModeManager target, string reason)
+    {
+        if (!CanPlayerWitnessReport(witness) || !CanReportTarget(target))
+        {
+            return;
+        }
+
+        double now = Time.timeAsDouble;
+        float highlightSeconds = Mathf.Max(0.5f, GoodSamaritanPlugin.Settings.HighlightSeconds.Value);
+
+        var arrest = ((Component)target).GetComponent<ArrestInteractable>();
+        if (!IsUnityNull(arrest))
+        {
+            arrest!.RpcShowSpottedIcon(highlightSeconds);
+        }
+
+        AppendLog(GoodSamaritanText.Get(Msg.DirectReport));
+        ShowPlayerWitnessIndicator(witness.Player, highlightSeconds);
+
+        witness.NextReportTime = now + Mathf.Max(1f, GoodSamaritanPlugin.Settings.ReportCooldownSeconds.Value);
+        nextGlobalReportTime = now + Mathf.Max(0.25f, GoodSamaritanPlugin.Settings.ReportCooldownSeconds.Value);
+        targetCooldownUntil[((Object)(object)target).GetInstanceID()] = now + Mathf.Max(1f, GoodSamaritanPlugin.Settings.TargetCooldownSeconds.Value);
+        GoodSamaritanPlugin.LogSource.LogDebug($"Playable witness report fired for {reason}.");
+    }
+
     private void ReportArea(GoodSamaritanWitness witness, Vector3 position, string reason)
     {
         if (!CanWitnessReport(witness))
@@ -880,6 +1323,24 @@ public sealed class GoodSamaritanManager : MonoBehaviour
         GoodSamaritanPlugin.LogSource.LogDebug($"Area witness report fired for {reason} at {area}.");
     }
 
+    [HideFromIl2Cpp]
+    private void ReportArea(PlayerWitnessState witness, Vector3 position, string reason)
+    {
+        if (!CanPlayerWitnessReport(witness))
+        {
+            return;
+        }
+
+        double now = Time.timeAsDouble;
+        string area = ResolveAreaName(position);
+        AppendLog(GoodSamaritanText.Format(Msg.AreaReport, area));
+        ShowPlayerWitnessIndicator(witness.Player, Mathf.Max(1f, GoodSamaritanPlugin.Settings.HighlightSeconds.Value));
+
+        witness.NextReportTime = now + Mathf.Max(1f, GoodSamaritanPlugin.Settings.ReportCooldownSeconds.Value);
+        nextGlobalReportTime = now + Mathf.Max(0.25f, GoodSamaritanPlugin.Settings.ReportCooldownSeconds.Value);
+        GoodSamaritanPlugin.LogSource.LogDebug($"Playable witness area report fired for {reason} at {area}.");
+    }
+
     private void ShowWitnessIndicator(GoodSamaritanWitness witness, float seconds)
     {
         if (!IsUnityNull(witness.Npc))
@@ -892,6 +1353,26 @@ public sealed class GoodSamaritanManager : MonoBehaviour
 
             GoodSamaritanMarker.ShowOn(witness.Npc, seconds, true);
         }
+    }
+
+    private void ShowPlayerWitnessIndicator(PlayerModeManager player, float seconds)
+    {
+        if (IsUnityNull(player))
+        {
+            return;
+        }
+
+        var targetPvcm = ((Component)player).GetComponent<PlayerVoiceControlManager>();
+        if (!IsUnityNull(targetPvcm))
+        {
+            var carrier = FindRpcCarrier();
+            if (!IsUnityNull(carrier))
+            {
+                carrier!.RpcPlayerShowIndicatorQuestion(targetPvcm);
+            }
+        }
+
+        GoodSamaritanMarker.ShowOn((Component)player, seconds, true);
     }
 
     private static void AppendLog(string message)
@@ -961,7 +1442,16 @@ public sealed class GoodSamaritanManager : MonoBehaviour
         }
 
         Transform witnessTransform = ((Component)witness).transform;
-        Vector3 origin = GetWitnessEyePosition(witness);
+        return IsDirectlyVisible(GetWitnessEyePosition(witness), witnessTransform.forward, target);
+    }
+
+    private bool IsDirectlyVisible(Vector3 origin, Vector3 forward, Transform target)
+    {
+        if (IsUnityNull(target))
+        {
+            return false;
+        }
+
         Vector3 targetPos = target.position + Vector3.up * 1.2f;
         Vector3 toTarget = targetPos - origin;
         float dist = toTarget.magnitude;
@@ -971,7 +1461,7 @@ public sealed class GoodSamaritanManager : MonoBehaviour
         }
 
         float halfFov = Mathf.Clamp(GoodSamaritanPlugin.Settings.WitnessFovDegrees.Value, 1f, 360f) * 0.5f;
-        float angle = Vector3.Angle(witnessTransform.forward, toTarget);
+        float angle = Vector3.Angle(forward.sqrMagnitude <= 0.001f ? Vector3.forward : forward, toTarget);
         if (angle > halfFov)
         {
             return false;
@@ -994,6 +1484,11 @@ public sealed class GoodSamaritanManager : MonoBehaviour
     private static Vector3 GetWitnessEyePosition(GoodSamaritanWitness witness)
     {
         return ((Component)witness).transform.position + Vector3.up * 1.55f;
+    }
+
+    private static Vector3 GetPlayerEyePosition(PlayerModeManager player)
+    {
+        return ((Component)player).transform.position + Vector3.up * 1.55f;
     }
 
     private NpcManager GetNpcManager()
@@ -1168,6 +1663,17 @@ public sealed class GoodSamaritanWitness : MonoBehaviour
     }
 }
 
+internal sealed class PlayerWitnessState
+{
+    internal PlayerModeManager Player;
+    internal double NextReportTime;
+
+    internal PlayerWitnessState(PlayerModeManager player)
+    {
+        Player = player;
+    }
+}
+
 public sealed class GoodSamaritanMarker : MonoBehaviour
 {
     private static AudioClip alertClip;
@@ -1236,12 +1742,22 @@ public sealed class GoodSamaritanMarker : MonoBehaviour
 
     internal static void ShowOn(NpcAiController npc, float seconds, bool playVoice)
     {
-        if (!GoodSamaritanPlugin.Settings.EnableCustomClientMarker.Value || GoodSamaritanManager.IsUnityNull(npc))
+        if (GoodSamaritanManager.IsUnityNull(npc))
         {
             return;
         }
 
-        var go = ((Component)npc!).gameObject;
+        ShowOn((Component)npc!, seconds, playVoice);
+    }
+
+    internal static void ShowOn(Component component, float seconds, bool playVoice)
+    {
+        if (!GoodSamaritanPlugin.Settings.EnableCustomClientMarker.Value || GoodSamaritanManager.IsUnityNull(component))
+        {
+            return;
+        }
+
+        var go = component!.gameObject;
         if (GoodSamaritanManager.IsUnityNull(go))
         {
             return;
@@ -1447,6 +1963,69 @@ internal static class PlayerVoiceControlManagerQuestionIndicatorPatch
         catch (Exception ex)
         {
             GoodSamaritanPlugin.LogSource.LogDebug($"Question indicator patch failed: {ex.Message}");
+        }
+    }
+}
+
+[HarmonyPatch(typeof(PlayerVoiceControlManager), nameof(PlayerVoiceControlManager.UserCode_RpcPlayerShowIndicatorQuestion__PlayerVoiceControlManager))]
+internal static class PlayerVoiceControlManagerPlayerQuestionIndicatorPatch
+{
+    private static void Postfix(PlayerVoiceControlManager pvcm)
+    {
+        try
+        {
+            if (!GoodSamaritanClientAlertGate.ShouldEnhanceQuestionIndicator() || GoodSamaritanManager.IsUnityNull(pvcm))
+            {
+                return;
+            }
+
+            GoodSamaritanMarker.ShowOn((Component)pvcm!, Mathf.Max(1f, GoodSamaritanPlugin.Settings.HighlightSeconds.Value), true);
+        }
+        catch (Exception ex)
+        {
+            GoodSamaritanPlugin.LogSource.LogDebug($"Player question indicator patch failed: {ex.Message}");
+        }
+    }
+}
+
+[HarmonyPatch(typeof(PlayerVoiceControlManager), "Method_Protected_Void_Vector3_VoskCommandType_Il2CppStringArray_Single_PDM_0")]
+internal static class PlayerVoiceControlManagerVoiceCommandHandshakePatch0
+{
+    private static bool Prefix(PlayerVoiceControlManager __instance, Il2CppStringArray translations, float radius)
+    {
+        return PlayerVoiceControlManagerVoiceCommandHandshake.Handle(__instance, translations, radius);
+    }
+}
+
+[HarmonyPatch(typeof(PlayerVoiceControlManager), "Method_Protected_Void_Vector3_VoskCommandType_Il2CppStringArray_Single_PDM_1")]
+internal static class PlayerVoiceControlManagerVoiceCommandHandshakePatch1
+{
+    private static bool Prefix(PlayerVoiceControlManager __instance, Il2CppStringArray translations, float radius)
+    {
+        return PlayerVoiceControlManagerVoiceCommandHandshake.Handle(__instance, translations, radius);
+    }
+}
+
+internal static class PlayerVoiceControlManagerVoiceCommandHandshake
+{
+    internal static bool Handle(PlayerVoiceControlManager instance, Il2CppStringArray translations, float radius)
+    {
+        try
+        {
+            if (!GoodSamaritanManager.IsClientCapabilityHello(radius, translations))
+            {
+                return true;
+            }
+
+            var component = (Component)instance;
+            var pmm = component.GetComponent<PlayerModeManager>() ?? component.GetComponentInParent<PlayerModeManager>();
+            GoodSamaritanManager.Instance?.RegisterModdedPlayer(pmm);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            GoodSamaritanPlugin.LogSource.LogDebug($"Playable witness handshake patch failed: {ex.Message}");
+            return false;
         }
     }
 }
