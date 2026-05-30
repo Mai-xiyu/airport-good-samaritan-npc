@@ -10,8 +10,6 @@ It adds witness-style civilian NPC behavior without changing the original NPC co
 - Existing NPC conversion plus optional extra witness spawns.
 - Direct callout: uses the game's original spotted icon plus player indicator fallback so TSA/agent targets can also be marked.
 - Area callout: uses the game's original log and NPC question indicator.
-- Native in-game mod menu inside the original `Settings` UI, with a `Mods` tab and an F8 shortcut.
-- Shared config-menu API for other BepInEx mods.
 - Optional playable witness players. Only clients that also have the mod installed can be randomly assigned by a modded host.
 - Playable witnesses are forced onto the TSA/agent faction for win/loss handling.
 - Modded clients additionally show a local exclamation marker and play a short local alert sound.
@@ -55,14 +53,14 @@ Supported values:
    Airport Security Sucks! Demo/BepInEx/config/com.airport.good_samaritan.cfg
    ```
 
-The in-game `Settings` screen gets a native `Mods` tab. Press `F8` to open `Settings` directly on that tab.
+Configuration is file-based only. This mod does not add an in-game config GUI.
 
 ## NPC Suspicion Presets
 
 - `Easy`: lower false positives, area reports only, no direct player pointing.
 - `Normal`: core behavior, including contraband, hidden contraband, reveal actions, civilian attacks, and contraband pickup.
 - `Hard`: strict behavior, also reports suspicious jumping and likely queue cutting.
-- `Custom`: manual toggles from the in-game menu or config file.
+- `Custom`: manual toggles from the config file.
 
 ## Build Locally
 
@@ -105,24 +103,6 @@ Release assets:
 - `GoodSamaritanNpc-vX.Y.Z.zip`
 
 The workflow builds against `lib/BepInEx` and uploads the compiled plugin, not only source code.
-
-## Mod Menu API
-
-Other mods can register a page if they reference this plugin assembly:
-
-```csharp
-GoodSamaritanModMenuApi.RegisterPage(
-    "my_mod",
-    "My Mod",
-    builder =>
-    {
-        builder.AddSection("My Mod");
-        builder.AddToggle("Enabled", true, enabled => { /* save config */ });
-        builder.AddFloatSlider("Spawn chance", 0.25f, 0f, 1f, value => { /* save config */ });
-    });
-```
-
-Pages are built with Unity uGUI controls inside the game's original `Settings` canvas, not IMGUI.
 
 ## Playable Witnesses
 
