@@ -1,0 +1,13 @@
+global using System;
+global using System.Collections.Generic;
+global using BepInEx;
+global using BepInEx.Configuration;
+global using BepInEx.Logging;
+global using BepInEx.Unity.IL2CPP;
+global using HarmonyLib;
+global using Il2CppInterop.Runtime.Attributes;
+global using Il2CppInterop.Runtime.Injection;
+global using Il2CppInterop.Runtime.InteropTypes.Arrays;
+global using Mirror;
+global using UnityEngine;
+global using Object = UnityEngine.Object;

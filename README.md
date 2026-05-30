@@ -2,6 +2,8 @@
 
 BepInEx 6 IL2CPP mod for **Airport Security Sucks! Demo**.
 
+Current version: `1.3.0`.
+
 It adds witness-style civilian NPC behavior without changing the original NPC combat/ragdoll/jail flow. Witness NPCs do not read the real smuggler role. They only react to suspicious observable behavior, then report either a directly visible suspicious person or a nearby area.
 
 ## Features
@@ -12,8 +14,11 @@ It adds witness-style civilian NPC behavior without changing the original NPC co
 - Area callout: uses the game's original log and NPC question indicator.
 - Optional playable witness players. Only clients that also have the mod installed can be randomly assigned by a modded host.
 - Playable witnesses are forced onto the TSA/agent faction for win/loss handling.
-- Modded clients additionally show a local exclamation marker and play a short local alert sound.
+- Optional playable undercover players. They stay on the smuggler win/loss side and are disabled by default.
+- TSA/agent and playable-witness actions are ignored by default for ordinary suspicion checks, reducing false reports.
+- Modded clients additionally show a local exclamation marker, blue ally outlines, yellow report outlines/areas, and play a short local alert sound.
 - TSA attacks against witness NPCs still use the original ordinary-NPC attack punishment path.
+- Undercover attacks against NPCs bypass the original self-jail side effect while still allowing witness reports.
 - Localized report text.
 
 ## Supported Languages
@@ -55,12 +60,46 @@ Supported values:
 
 Configuration is file-based only. This mod does not add an in-game config GUI.
 
+No menu, GUI, or shared config API is included. Edit the generated cfg under `BepInEx/config`.
+
 ## NPC Suspicion Presets
 
 - `Easy`: lower false positives, area reports only, no direct player pointing.
 - `Normal`: core behavior, including contraband, hidden contraband, reveal actions, civilian attacks, and contraband pickup.
 - `Hard`: strict behavior, also reports suspicious jumping and likely queue cutting.
 - `Custom`: manual toggles from the config file.
+
+False-positive control:
+
+- `IgnoreTsaSuspicion=true`: TSA/agent players do not trigger ordinary suspicion checks.
+- `ReportTsaCivilianAttacks=false`: TSA/agent attacks against civilians still use the game's original punishment, but witnesses do not report them unless this is enabled.
+
+## Client Highlights
+
+These are local-only visual additions for modded clients. They do not replace the game's original red smuggler outline.
+
+- Blue outline: TSA/agent players, playable witnesses, and known witness NPCs.
+- Yellow outline: witness-reported suspicious players.
+- Yellow floor rectangle: area report when a witness cannot directly identify a target.
+
+Relevant config keys:
+
+- `ShowTeamHighlights`
+- `ShowReportHighlightsToAllModdedClients`
+- `AreaHighlightSeconds`
+- `HighlightSeconds`
+
+## Source Layout
+
+- `src/GoodSamaritanNpc/Plugin`: BepInEx plugin entrypoint.
+- `src/GoodSamaritanNpc/Config`: cfg-only BepInEx configuration.
+- `src/GoodSamaritanNpc/Core`: manager lifecycle, playable roles, NPC witness population, and witness state.
+- `src/GoodSamaritanNpc/Detection`: suspicion event types and detection scans.
+- `src/GoodSamaritanNpc/Reporting`: report dispatch, cooldowns, original-game feedback calls, and visibility checks.
+- `src/GoodSamaritanNpc/Feedback`: local markers, outline highlights, and area highlights.
+- `src/GoodSamaritanNpc/Localization`: localized report text.
+- `src/GoodSamaritanNpc/Patches`: Harmony patches for game events and mod-to-mod capability handshakes.
+- `src/GoodSamaritanNpc/World`: area-name resolution and local scene helpers.
 
 ## Build Locally
 
@@ -113,3 +152,15 @@ Relevant config keys:
 - `EnablePlayableWitnessPlayers`
 - `MaxPlayableWitnessPlayers`
 - `PlayableWitnessChance`
+
+## Playable Undercover
+
+Undercover assignment uses the same mod-to-mod handshake and is disabled by default. When enabled, the host randomly assigns eligible modded players up to the configured limit.
+
+Undercover players are forced to `isAgent=false`, so the game's existing win/loss logic treats them as smuggler-side. Their NPC-hit jail side effect is skipped, but the NPC hit/tackle path and witness report path remain active.
+
+Relevant config keys:
+
+- `EnablePlayableUndercoverPlayers`
+- `MaxPlayableUndercoverPlayers`
+- `PlayableUndercoverChance`
