@@ -13,8 +13,13 @@ internal static class PlayerVoiceControlManagerQuestionIndicatorPatch
             }
 
             float seconds = Mathf.Max(1f, GoodSamaritanPlugin.Settings.HighlightSeconds.Value);
-            GoodSamaritanMarker.ShowOn(npcAiController, seconds, true);
-            GoodSamaritanClientHighlighter.ShowNpc(npcAiController, GoodSamaritanHighlightKind.Ally, seconds);
+            bool isWitnessSource = GoodSamaritanClientAlertGate.ConsumeNpcQuestionAsWitnessSource();
+            if (isWitnessSource && GoodSamaritanClientHighlighter.CanShowAllyFeedbackToLocal())
+            {
+                GoodSamaritanMarker.ShowOn(npcAiController, seconds, true);
+                GoodSamaritanClientHighlighter.ShowNpc(npcAiController, GoodSamaritanHighlightKind.Ally, seconds);
+            }
+
             if (GoodSamaritanClientAlertGate.ShouldEnhanceAreaIndicator() && !GoodSamaritanManager.IsUnityNull(npcAiController))
             {
                 GoodSamaritanClientHighlighter.ShowArea(((Component)npcAiController!).transform.position, Mathf.Max(1f, GoodSamaritanPlugin.Settings.AreaHighlightSeconds.Value));
@@ -40,8 +45,20 @@ internal static class PlayerVoiceControlManagerPlayerQuestionIndicatorPatch
             }
 
             float seconds = Mathf.Max(1f, GoodSamaritanPlugin.Settings.HighlightSeconds.Value);
-            GoodSamaritanMarker.ShowOn((Component)pvcm!, seconds, true);
             var player = ((Component)pvcm!).GetComponent<PlayerModeManager>() ?? ((Component)pvcm).GetComponentInParent<PlayerModeManager>();
+            bool isWitnessSource = GoodSamaritanClientAlertGate.ConsumePlayerQuestionAsWitnessSource();
+            if (isWitnessSource)
+            {
+                if (GoodSamaritanClientHighlighter.CanShowAllyFeedbackToLocal() && !GoodSamaritanManager.IsUnityNull(player))
+                {
+                    GoodSamaritanMarker.ShowOn((Component)pvcm!, seconds, true);
+                    GoodSamaritanClientHighlighter.ShowPlayer(player!, GoodSamaritanHighlightKind.Ally, seconds);
+                }
+
+                return;
+            }
+
+            GoodSamaritanMarker.ShowOn((Component)pvcm!, seconds, true);
             if (!GoodSamaritanManager.IsUnityNull(player))
             {
                 GoodSamaritanClientHighlighter.ShowPlayer(player!, GoodSamaritanHighlightKind.Suspicious, seconds);

@@ -83,7 +83,7 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
             return;
         }
 
-        if (kind == GoodSamaritanHighlightKind.Ally && !GoodSamaritanPlugin.Settings.ShowTeamHighlights.Value)
+        if (kind == GoodSamaritanHighlightKind.Ally && !CanShowAllyFeedbackToLocal())
         {
             return;
         }
@@ -117,20 +117,13 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
     [HideFromIl2Cpp]
     private void UpdateTeamHighlights()
     {
-        if (!GoodSamaritanPlugin.Settings.ShowTeamHighlights.Value)
+        if (!CanShowAllyFeedbackToLocal())
         {
             return;
         }
 
         var local = FindLocalPlayer();
-        if (GoodSamaritanManager.IsUnityNull(local))
-        {
-            return;
-        }
-
-        bool localIsUndercover = IsLocalUndercover(local);
-        bool localCanSeeTeam = local!.NetworkisAgent || localIsUndercover;
-        if (!localCanSeeTeam)
+        if (GoodSamaritanManager.IsUnityNull(local) || !local!.NetworkisAgent || IsLocalUndercover(local))
         {
             return;
         }
@@ -153,10 +146,6 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
             {
                 ShowPlayer(player, GoodSamaritanHighlightKind.Ally, 1.35f);
             }
-            else if (localIsUndercover)
-            {
-                ShowPlayer(player, GoodSamaritanHighlightKind.Suspicious, 1.35f);
-            }
         }
 
         var witnesses = Object.FindObjectsOfType<GoodSamaritanWitness>();
@@ -173,6 +162,22 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
                 ShowNpc(witness.Npc, GoodSamaritanHighlightKind.Ally, 1.35f);
             }
         }
+    }
+
+    internal static bool CanShowAllyFeedbackToLocal()
+    {
+        if (!GoodSamaritanPlugin.Settings.ShowTeamHighlights.Value)
+        {
+            return false;
+        }
+
+        var local = FindLocalPlayer();
+        if (GoodSamaritanManager.IsUnityNull(local))
+        {
+            return false;
+        }
+
+        return local!.NetworkisAgent && !IsLocalUndercover(local);
     }
 
     private static bool IsLocalUndercover(PlayerModeManager local)

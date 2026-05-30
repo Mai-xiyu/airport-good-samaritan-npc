@@ -162,8 +162,11 @@ public sealed partial class GoodSamaritanManager
                 pvcm!.RpcNpcShowIndicatorQuestion(witness.Npc);
             }
 
-            GoodSamaritanMarker.ShowOn(witness.Npc, seconds, true);
-            GoodSamaritanClientHighlighter.ShowNpc(witness.Npc, GoodSamaritanHighlightKind.Ally, seconds);
+            if (GoodSamaritanClientHighlighter.CanShowAllyFeedbackToLocal())
+            {
+                GoodSamaritanMarker.ShowOn(witness.Npc, seconds, true);
+                GoodSamaritanClientHighlighter.ShowNpc(witness.Npc, GoodSamaritanHighlightKind.Ally, seconds);
+            }
         }
     }
 
@@ -185,8 +188,11 @@ public sealed partial class GoodSamaritanManager
             }
         }
 
-        GoodSamaritanMarker.ShowOn((Component)player, seconds, true);
-        GoodSamaritanClientHighlighter.ShowPlayer(player, GoodSamaritanHighlightKind.Ally, seconds);
+        if (GoodSamaritanClientHighlighter.CanShowAllyFeedbackToLocal())
+        {
+            GoodSamaritanMarker.ShowOn((Component)player, seconds, true);
+            GoodSamaritanClientHighlighter.ShowPlayer(player, GoodSamaritanHighlightKind.Ally, seconds);
+        }
     }
 
     [HideFromIl2Cpp]

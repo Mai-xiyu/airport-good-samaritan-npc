@@ -81,6 +81,7 @@ These are local-only visual additions for modded clients. They do not replace th
 - Blue outline: TSA/agent players, playable witnesses, and known witness NPCs.
 - Yellow outline: witness-reported suspicious players.
 - Yellow floor rectangle: area report when a witness cannot directly identify a target.
+- Undercover players do not see blue witness-side outlines or local witness-source markers.
 
 Relevant config keys:
 
