@@ -231,14 +231,13 @@ public sealed partial class GoodSamaritanManager : MonoBehaviour
     [HideFromIl2Cpp]
     private void EnsureServerNpcManagerState()
     {
-        var manager = GetNpcManager();
-        if (IsUnityNull(manager))
+        int sourceId = GetNpcPopulationSourceId();
+        if (sourceId == 0)
         {
             return;
         }
 
-        int managerId = ((Object)(object)manager!).GetInstanceID();
-        if (managerId == lastNpcManagerInstanceId)
+        if (sourceId == lastNpcManagerInstanceId)
         {
             return;
         }
@@ -248,7 +247,7 @@ public sealed partial class GoodSamaritanManager : MonoBehaviour
         targetCooldownUntil.Clear();
         extraSpawnedThisManager = 0;
         pendingForcedWitnessMarks = 0;
-        lastNpcManagerInstanceId = managerId;
+        lastNpcManagerInstanceId = sourceId;
         RefreshNamedAreas();
     }
 }

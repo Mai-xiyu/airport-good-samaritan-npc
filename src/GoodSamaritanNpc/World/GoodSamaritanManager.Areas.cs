@@ -25,6 +25,41 @@ public sealed partial class GoodSamaritanManager
     }
 
     [HideFromIl2Cpp]
+    private HijackingNpcs GetHijackingNpcs()
+    {
+        var manager = HijackingNpcs.Instance;
+        if (IsUnityNull(manager))
+        {
+            manager = Object.FindObjectOfType<HijackingNpcs>();
+        }
+
+        return manager;
+    }
+
+    [HideFromIl2Cpp]
+    private int GetNpcPopulationSourceId()
+    {
+        var hijackingNpcs = GetHijackingNpcs();
+        if (IsActiveComponent(hijackingNpcs))
+        {
+            return ((Object)(object)hijackingNpcs!).GetInstanceID();
+        }
+
+        var manager = GetNpcManager();
+        if (!IsUnityNull(manager))
+        {
+            return ((Object)(object)manager!).GetInstanceID();
+        }
+
+        return 0;
+    }
+
+    private static bool IsActiveComponent(Component component)
+    {
+        return !IsUnityNull(component) && !IsUnityNull(component!.gameObject) && component.gameObject.activeInHierarchy;
+    }
+
+    [HideFromIl2Cpp]
     private string ResolveAreaName(Vector3 position)
     {
         areaRefreshTimer -= Time.deltaTime;
@@ -85,12 +120,12 @@ public sealed partial class GoodSamaritanManager
     private static string TryMapAreaName(string objectName)
     {
         string name = objectName.ToLowerInvariant();
-        if (name.Contains("scan line") || name.Contains("xray") || name.Contains("scanner"))
+        if (name.Contains("scan line") || name.Contains("xray") || name.Contains("scanner") || name.Contains("checkpoint") || name.Contains("security"))
         {
             return GoodSamaritanText.Get(Msg.AreaSecurityLine);
         }
 
-        if (name.Contains("terminal"))
+        if (name.Contains("terminal") || name.Contains("concourse"))
         {
             return GoodSamaritanText.Get(Msg.AreaTerminal);
         }
@@ -110,12 +145,42 @@ public sealed partial class GoodSamaritanManager
             return GoodSamaritanText.Get(Msg.AreaTsa);
         }
 
+        if (name.Contains("gate") || name.Contains("boarding"))
+        {
+            return GoodSamaritanText.Get(Msg.AreaGate);
+        }
+
         if (name.Contains("lobby"))
         {
             return GoodSamaritanText.Get(Msg.AreaLobby);
         }
 
-        if (name.Contains("plane") || name.Contains("passenger aircraft"))
+        if (name.Contains("cockpit") || name.Contains("flight deck"))
+        {
+            return GoodSamaritanText.Get(Msg.AreaCockpit);
+        }
+
+        if (name.Contains("cabin") || name.Contains("aisle") || name.Contains("seat") || name.Contains("passenger"))
+        {
+            return GoodSamaritanText.Get(Msg.AreaCabin);
+        }
+
+        if (name.Contains("galley") || name.Contains("kitchen"))
+        {
+            return GoodSamaritanText.Get(Msg.AreaGalley);
+        }
+
+        if (name.Contains("cargo") || name.Contains("baggage hold"))
+        {
+            return GoodSamaritanText.Get(Msg.AreaCargo);
+        }
+
+        if (name.Contains("engine") || name.Contains("landing gear") || name.Contains("wing"))
+        {
+            return GoodSamaritanText.Get(Msg.AreaPlaneExterior);
+        }
+
+        if (name.Contains("plane") || name.Contains("passenger aircraft") || name.Contains("hijack"))
         {
             return GoodSamaritanText.Get(Msg.AreaPlane);
         }
@@ -128,6 +193,31 @@ public sealed partial class GoodSamaritanManager
         if (name.Contains("break room"))
         {
             return GoodSamaritanText.Get(Msg.AreaBreakRoom);
+        }
+
+        if (name.Contains("runway") || name.Contains("tarmac"))
+        {
+            return GoodSamaritanText.Get(Msg.AreaRunway);
+        }
+
+        if (name.Contains("vending"))
+        {
+            return GoodSamaritanText.Get(Msg.AreaVending);
+        }
+
+        if (name.Contains("tower"))
+        {
+            return GoodSamaritanText.Get(Msg.AreaTower);
+        }
+
+        if (name.Contains("deathmatch"))
+        {
+            return GoodSamaritanText.Get(Msg.AreaDeathmatch);
+        }
+
+        if (name.Contains("sandbox"))
+        {
+            return GoodSamaritanText.Get(Msg.AreaSandbox);
         }
 
         return string.Empty;

@@ -58,10 +58,13 @@ internal static class PlayerVoiceControlManagerPlayerQuestionIndicatorPatch
                 return;
             }
 
-            GoodSamaritanMarker.ShowOn((Component)pvcm!, seconds, true);
-            if (!GoodSamaritanManager.IsUnityNull(player))
+            if (GoodSamaritanClientHighlighter.CanShowReportFeedbackToLocal())
             {
-                GoodSamaritanClientHighlighter.ShowPlayer(player!, GoodSamaritanHighlightKind.Suspicious, seconds);
+                GoodSamaritanMarker.ShowOn((Component)pvcm!, seconds, true);
+                if (!GoodSamaritanManager.IsUnityNull(player))
+                {
+                    GoodSamaritanClientHighlighter.ShowPlayer(player!, GoodSamaritanHighlightKind.Suspicious, seconds);
+                }
             }
         }
         catch (Exception ex)

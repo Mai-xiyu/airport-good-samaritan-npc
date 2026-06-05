@@ -6,6 +6,7 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
     private static readonly Color SuspiciousYellow = new(1f, 0.82f, 0.08f, 1f);
     private static readonly Color AreaYellow = new(1f, 0.78f, 0.05f, 0.28f);
     private static readonly HashSet<uint> LocalUndercoverNetIds = new();
+    private static bool localHijacker;
 
     internal static GoodSamaritanClientHighlighter Instance;
 
@@ -33,6 +34,11 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
     public void Update()
     {
         CleanupAreas();
+        if (!NetworkClient.active)
+        {
+            localHijacker = false;
+        }
+
         if (!GoodSamaritanPlugin.Settings.Enabled.Value || !NetworkClient.active)
         {
             return;
@@ -54,6 +60,11 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
         {
             LocalUndercoverNetIds.Add(player.netId);
         }
+    }
+
+    internal static void NoteLocalHijackerRole(bool isHijacker)
+    {
+        localHijacker = isHijacker;
     }
 
     internal static void ShowPlayer(PlayerModeManager player, GoodSamaritanHighlightKind kind, float seconds)
@@ -88,7 +99,7 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
             return;
         }
 
-        if (kind == GoodSamaritanHighlightKind.Suspicious && !GoodSamaritanPlugin.Settings.ShowReportHighlightsToAllModdedClients.Value)
+        if (kind == GoodSamaritanHighlightKind.Suspicious && !CanShowReportFeedbackToLocal())
         {
             return;
         }
@@ -106,7 +117,7 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
 
     internal static void ShowArea(Vector3 position, float seconds)
     {
-        if (!GoodSamaritanPlugin.Settings.ShowReportHighlightsToAllModdedClients.Value || Instance == null)
+        if (!CanShowReportFeedbackToLocal() || Instance == null)
         {
             return;
         }
@@ -123,7 +134,7 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
         }
 
         var local = FindLocalPlayer();
-        if (GoodSamaritanManager.IsUnityNull(local) || !local!.NetworkisAgent || IsLocalUndercover(local))
+        if (GoodSamaritanManager.IsUnityNull(local) || !local!.NetworkisAgent || IsLocalUndercover(local) || localHijacker)
         {
             return;
         }
@@ -157,9 +168,9 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
         for (int i = 0; i < witnesses.Length; i++)
         {
             var witness = witnesses[i];
-            if (!GoodSamaritanManager.IsUnityNull(witness) && !GoodSamaritanManager.IsUnityNull(witness!.Npc))
+            if (!GoodSamaritanManager.IsUnityNull(witness) && !GoodSamaritanManager.IsUnityNull(witness!.SourceOrSelf))
             {
-                ShowNpc(witness.Npc, GoodSamaritanHighlightKind.Ally, 1.35f);
+                ShowComponent(witness.SourceOrSelf, GoodSamaritanHighlightKind.Ally, 1.35f);
             }
         }
     }
@@ -177,7 +188,23 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
             return false;
         }
 
-        return local!.NetworkisAgent && !IsLocalUndercover(local);
+        return local!.NetworkisAgent && !IsLocalUndercover(local) && !localHijacker;
+    }
+
+    internal static bool CanShowReportFeedbackToLocal()
+    {
+        if (!GoodSamaritanPlugin.Settings.ShowReportHighlightsToAllModdedClients.Value)
+        {
+            return false;
+        }
+
+        var local = FindLocalPlayer();
+        if (GoodSamaritanManager.IsUnityNull(local))
+        {
+            return false;
+        }
+
+        return !IsLocalUndercover(local!) && !localHijacker;
     }
 
     private static bool IsLocalUndercover(PlayerModeManager local)

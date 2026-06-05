@@ -19,15 +19,26 @@ public sealed partial class GoodSamaritanManager
             return;
         }
 
-        var manager = GetNpcManager();
-        if (IsUnityNull(manager))
+        var hijackingNpcs = GetHijackingNpcs();
+        if (IsActiveComponent(hijackingNpcs))
         {
+            SpawnHijackingWitnessNpcs(hijackingNpcs!, desired);
             return;
         }
 
+        var manager = GetNpcManager();
+        if (!IsUnityNull(manager))
+        {
+            SpawnAirportWitnessNpcs(manager!, desired);
+        }
+    }
+
+    [HideFromIl2Cpp]
+    private void SpawnAirportWitnessNpcs(NpcManager manager, int desired)
+    {
         while (extraSpawnedThisManager < desired)
         {
-            var spawn = manager!.GetRandomSpawnLocation();
+            var spawn = manager.GetRandomSpawnLocation();
             if (IsUnityNull(spawn))
             {
                 break;
@@ -40,61 +51,97 @@ public sealed partial class GoodSamaritanManager
     }
 
     [HideFromIl2Cpp]
+    private void SpawnHijackingWitnessNpcs(HijackingNpcs hijackingNpcs, int desired)
+    {
+        while (extraSpawnedThisManager < desired)
+        {
+            Vector3 spawn = hijackingNpcs.GetRandomPoint();
+            if (!float.IsFinite(spawn.x) || !float.IsFinite(spawn.y) || !float.IsFinite(spawn.z))
+            {
+                break;
+            }
+
+            hijackingNpcs.ServerSpawnNpc(spawn);
+            extraSpawnedThisManager++;
+            pendingForcedWitnessMarks++;
+        }
+    }
+
+    [HideFromIl2Cpp]
     private void MarkExistingNpcs()
     {
         var npcs = Object.FindObjectsOfType<NpcAiController>();
-        if (npcs == null)
+        if (npcs != null)
+        {
+            for (int i = 0; i < npcs.Length; i++)
+            {
+                TryEvaluateWitnessSource(npcs[i]);
+            }
+        }
+
+        MarkPlaneNpcs();
+    }
+
+    [HideFromIl2Cpp]
+    private void MarkPlaneNpcs()
+    {
+        var planeNpcs = Object.FindObjectsOfType<PlaneWanderNpcAi>();
+        if (planeNpcs == null)
         {
             return;
         }
 
-        float chance = Mathf.Clamp01(GoodSamaritanPlugin.Settings.ExistingNpcChance.Value);
-        for (int i = 0; i < npcs.Length; i++)
+        for (int i = 0; i < planeNpcs.Length; i++)
         {
-            var npc = npcs[i];
-            if (IsUnityNull(npc))
-            {
-                continue;
-            }
-
-            int id = ((Object)(object)npc).GetInstanceID();
-            if (HasWitness(npc))
-            {
-                evaluatedNpcIds.Add(id);
-                continue;
-            }
-
-            if (pendingForcedWitnessMarks > 0)
-            {
-                evaluatedNpcIds.Add(id);
-                pendingForcedWitnessMarks--;
-                AddWitness(npc);
-                continue;
-            }
-
-            if (!GoodSamaritanPlugin.Settings.ConvertExistingNpcs.Value || evaluatedNpcIds.Contains(id))
-            {
-                continue;
-            }
-
-            evaluatedNpcIds.Add(id);
-            if (UnityEngine.Random.value <= chance)
-            {
-                AddWitness(npc);
-            }
+            TryEvaluateWitnessSource(planeNpcs[i]);
         }
     }
 
     [HideFromIl2Cpp]
-    private bool HasWitness(NpcAiController npc)
+    private void TryEvaluateWitnessSource(Component source)
     {
-        return !IsUnityNull(((Component)npc).GetComponent<GoodSamaritanWitness>());
+        if (IsUnityNull(source))
+        {
+            return;
+        }
+
+        int id = source!.gameObject.GetInstanceID();
+        if (HasWitness(source))
+        {
+            evaluatedNpcIds.Add(id);
+            return;
+        }
+
+        if (pendingForcedWitnessMarks > 0)
+        {
+            evaluatedNpcIds.Add(id);
+            pendingForcedWitnessMarks--;
+            AddWitness(source);
+            return;
+        }
+
+        if (!GoodSamaritanPlugin.Settings.ConvertExistingNpcs.Value || evaluatedNpcIds.Contains(id))
+        {
+            return;
+        }
+
+        evaluatedNpcIds.Add(id);
+        if (UnityEngine.Random.value <= Mathf.Clamp01(GoodSamaritanPlugin.Settings.ExistingNpcChance.Value))
+        {
+            AddWitness(source);
+        }
     }
 
     [HideFromIl2Cpp]
-    private void AddWitness(NpcAiController npc)
+    private bool HasWitness(Component source)
     {
-        var go = ((Component)npc).gameObject;
+        return !IsUnityNull(source) && !IsUnityNull(source!.GetComponent<GoodSamaritanWitness>());
+    }
+
+    [HideFromIl2Cpp]
+    private void AddWitness(Component source)
+    {
+        var go = source.gameObject;
         if (IsUnityNull(go))
         {
             return;
@@ -106,7 +153,8 @@ public sealed partial class GoodSamaritanManager
             witness = go.AddComponent<GoodSamaritanWitness>();
         }
 
-        witness!.Npc = npc;
+        witness!.Source = source;
+        witness.Npc = source.GetComponent<NpcAiController>() ?? source.GetComponentInParent<NpcAiController>();
         witness.NextReportTime = Time.timeAsDouble + UnityEngine.Random.Range(1f, 4f);
         witnesses.Add(witness);
     }
@@ -117,7 +165,7 @@ public sealed partial class GoodSamaritanManager
         for (int i = witnesses.Count - 1; i >= 0; i--)
         {
             var witness = witnesses[i];
-            if (IsUnityNull(witness) || IsUnityNull(witness.Npc))
+            if (IsUnityNull(witness) || IsUnityNull(witness!.SourceOrSelf))
             {
                 witnesses.RemoveAt(i);
             }

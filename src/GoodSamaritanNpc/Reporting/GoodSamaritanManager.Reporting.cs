@@ -5,12 +5,12 @@ public sealed partial class GoodSamaritanManager
     [HideFromIl2Cpp]
     private bool CanWitnessReport(GoodSamaritanWitness witness)
     {
-        if (IsUnityNull(witness) || IsUnityNull(witness.Npc))
+        if (IsUnityNull(witness) || IsUnityNull(witness!.SourceOrSelf))
         {
             return false;
         }
 
-        var ragdoll = ((Component)witness).GetComponent<NpcRagdollManager>();
+        var ragdoll = witness.SourceOrSelf.GetComponent<NpcRagdollManager>();
         if (!IsUnityNull(ragdoll) && ragdoll!.IsRagdolled)
         {
             return false;
@@ -154,6 +154,11 @@ public sealed partial class GoodSamaritanManager
     [HideFromIl2Cpp]
     private void ShowWitnessIndicator(GoodSamaritanWitness witness, float seconds)
     {
+        if (IsUnityNull(witness) || IsUnityNull(witness!.SourceOrSelf))
+        {
+            return;
+        }
+
         if (!IsUnityNull(witness.Npc))
         {
             var pvcm = FindRpcCarrier();
@@ -161,12 +166,12 @@ public sealed partial class GoodSamaritanManager
             {
                 pvcm!.RpcNpcShowIndicatorQuestion(witness.Npc);
             }
+        }
 
-            if (GoodSamaritanClientHighlighter.CanShowAllyFeedbackToLocal())
-            {
-                GoodSamaritanMarker.ShowOn(witness.Npc, seconds, true);
-                GoodSamaritanClientHighlighter.ShowNpc(witness.Npc, GoodSamaritanHighlightKind.Ally, seconds);
-            }
+        if (GoodSamaritanClientHighlighter.CanShowAllyFeedbackToLocal())
+        {
+            GoodSamaritanMarker.ShowOn(witness.SourceOrSelf, seconds, true);
+            GoodSamaritanClientHighlighter.ShowComponent(witness.SourceOrSelf, GoodSamaritanHighlightKind.Ally, seconds);
         }
     }
 
@@ -213,8 +218,11 @@ public sealed partial class GoodSamaritanManager
             }
         }
 
-        GoodSamaritanMarker.ShowOn((Component)target, seconds, false);
-        GoodSamaritanClientHighlighter.ShowPlayer(target, GoodSamaritanHighlightKind.Suspicious, seconds);
+        if (GoodSamaritanClientHighlighter.CanShowReportFeedbackToLocal())
+        {
+            GoodSamaritanMarker.ShowOn((Component)target, seconds, false);
+            GoodSamaritanClientHighlighter.ShowPlayer(target, GoodSamaritanHighlightKind.Suspicious, seconds);
+        }
     }
 
     private static void AppendLog(string message)

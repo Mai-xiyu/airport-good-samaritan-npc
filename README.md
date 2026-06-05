@@ -2,7 +2,7 @@
 
 BepInEx 6 IL2CPP mod for **Airport Security Sucks!**.
 
-Current version: `1.4.0`.
+Current version: `1.4.1`.
 
 This branch targets the full Steam release of the game. The bundled reference assemblies under `lib/BepInEx` are generated from the full release, not the old demo.
 
@@ -12,6 +12,7 @@ It adds witness-style civilian NPC behavior without changing the original NPC co
 
 - Server-authoritative witness NPC logic.
 - Existing NPC conversion plus optional extra witness spawns.
+- Full-release hijacking mode support for plane passenger NPCs spawned by `HijackingNpcs`.
 - Direct callout: uses the game's original spotted icon plus player indicator fallback so TSA/agent targets can also be marked.
 - Area callout: uses the game's original log and NPC question indicator.
 - Optional playable witness players. Only clients that also have the mod installed can be randomly assigned by a modded host.
@@ -83,7 +84,7 @@ These are local-only visual additions for modded clients. They do not replace th
 - Blue outline: TSA/agent players, playable witnesses, and known witness NPCs.
 - Yellow outline: witness-reported suspicious players.
 - Yellow floor rectangle: area report when a witness cannot directly identify a target.
-- Undercover players do not see blue witness-side outlines or local witness-source markers.
+- Undercover players and hijackers in the game's hijacking mode do not see local witness-side or report highlight enhancements.
 
 Relevant config keys:
 
