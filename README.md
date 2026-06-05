@@ -1,8 +1,10 @@
 # GoodSamaritanNpc
 
-BepInEx 6 IL2CPP mod for **Airport Security Sucks! Demo**.
+BepInEx 6 IL2CPP mod for **Airport Security Sucks!**.
 
-Current version: `1.3.0`.
+Current version: `1.4.0`.
+
+This branch targets the full Steam release of the game. The bundled reference assemblies under `lib/BepInEx` are generated from the full release, not the old demo.
 
 It adds witness-style civilian NPC behavior without changing the original NPC combat/ragdoll/jail flow. Witness NPCs do not read the real smuggler role. They only react to suspicious observable behavior, then report either a directly visible suspicious person or a nearby area.
 
@@ -48,14 +50,14 @@ Supported values:
 2. Copy `GoodSamaritanNpc.dll` into:
 
    ```text
-   Airport Security Sucks! Demo/BepInEx/plugins/
+   Airport Security Sucks!/BepInEx/plugins/
    ```
 
 3. Start the game once.
 4. Edit:
 
    ```text
-   Airport Security Sucks! Demo/BepInEx/config/com.airport.good_samaritan.cfg
+   Airport Security Sucks!/BepInEx/config/com.airport.good_samaritan.cfg
    ```
 
 Configuration is file-based only. This mod does not add an in-game config GUI.
@@ -115,13 +117,13 @@ dotnet build .\GoodSamaritanNpc.csproj -c Release
 If your game is installed elsewhere:
 
 ```powershell
-dotnet build .\GoodSamaritanNpc.csproj -c Release /p:GameDir="D:\Path\To\Airport Security Sucks! Demo"
+dotnet build .\GoodSamaritanNpc.csproj -c Release /p:GameDir="D:\Path\To\Airport Security Sucks!"
 ```
 
 Or set:
 
 ```powershell
-$env:AIRPORT_SECURITY_SUCKS_DIR = "D:\Path\To\Airport Security Sucks! Demo"
+$env:AIRPORT_SECURITY_SUCKS_DIR = "D:\Path\To\Airport Security Sucks!"
 dotnet build .\GoodSamaritanNpc.csproj -c Release
 ```
 
