@@ -18,6 +18,15 @@ internal static class PlayerVoiceControlManagerVoiceCommandHandshakePatch1
     }
 }
 
+[HarmonyPatch(typeof(PlayerVoiceControlManager), "Method_Protected_Void_Vector3_VoskCommandType_Il2CppStringArray_Single_PDM_2")]
+internal static class PlayerVoiceControlManagerVoiceCommandHandshakePatch2
+{
+    private static bool Prefix(PlayerVoiceControlManager __instance, Il2CppStringArray translations, float radius)
+    {
+        return PlayerVoiceControlManagerVoiceCommandHandshake.Handle(__instance, translations, radius);
+    }
+}
+
 internal static class PlayerVoiceControlManagerVoiceCommandHandshake
 {
     internal static bool Handle(PlayerVoiceControlManager instance, Il2CppStringArray translations, float radius)
@@ -31,7 +40,8 @@ internal static class PlayerVoiceControlManagerVoiceCommandHandshake
 
             var component = (Component)instance;
             var pmm = component.GetComponent<PlayerModeManager>() ?? component.GetComponentInParent<PlayerModeManager>();
-            GoodSamaritanManager.Instance?.RegisterModdedPlayer(pmm);
+            string clientVersion = translations.Length > 1 ? translations[1] : string.Empty;
+            GoodSamaritanManager.Instance?.RegisterModdedPlayer(pmm, clientVersion);
             return false;
         }
         catch (Exception ex)

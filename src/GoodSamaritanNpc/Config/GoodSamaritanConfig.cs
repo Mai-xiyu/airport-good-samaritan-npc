@@ -29,6 +29,7 @@ internal sealed class GoodSamaritanConfig
     internal readonly ConfigEntry<bool> EnablePlayableWitnessPlayers;
     internal readonly ConfigEntry<int> MaxPlayableWitnessPlayers;
     internal readonly ConfigEntry<float> PlayableWitnessChance;
+    internal readonly ConfigEntry<bool> UseCivilianModelForPlayableWitnessPlayers;
     internal readonly ConfigEntry<bool> EnablePlayableUndercoverPlayers;
     internal readonly ConfigEntry<int> MaxPlayableUndercoverPlayers;
     internal readonly ConfigEntry<float> PlayableUndercoverChance;
@@ -65,6 +66,7 @@ internal sealed class GoodSamaritanConfig
         EnablePlayableWitnessPlayers = config.Bind("Playable", "EnablePlayableWitnessPlayers", true, "Randomly assign modded players as playable witnesses when the host also has the mod.");
         MaxPlayableWitnessPlayers = config.Bind("Playable", "MaxPlayableWitnessPlayers", 1, "Maximum playable witness players per round.");
         PlayableWitnessChance = config.Bind("Playable", "PlayableWitnessChance", 0.25f, "Chance for each eligible modded player to become a playable witness.");
+        UseCivilianModelForPlayableWitnessPlayers = config.Bind("Playable", "UseCivilianModelForPlayableWitnessPlayers", true, "Show playable witnesses with their synchronized civilian NPC model while keeping Agent faction logic.");
         EnablePlayableUndercoverPlayers = config.Bind("Playable", "EnablePlayableUndercoverPlayers", false, "Randomly assign modded players as undercover smuggler-side witnesses.");
         MaxPlayableUndercoverPlayers = config.Bind("Playable", "MaxPlayableUndercoverPlayers", 1, "Maximum undercover players per round.");
         PlayableUndercoverChance = config.Bind("Playable", "PlayableUndercoverChance", 0.15f, "Chance for each eligible modded player to become undercover.");

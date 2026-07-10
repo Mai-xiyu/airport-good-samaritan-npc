@@ -29,7 +29,7 @@ public sealed partial class GoodSamaritanManager
         }
 
         uint netId = witness.Player.netId;
-        if (netId == 0u || !playableWitnessNetIds.Contains(netId) || !moddedPlayerNetIds.Contains(netId))
+        if (netId == 0u || !playableWitnessNetIds.Contains(netId) || !IsRoleSyncCapable(netId))
         {
             return false;
         }

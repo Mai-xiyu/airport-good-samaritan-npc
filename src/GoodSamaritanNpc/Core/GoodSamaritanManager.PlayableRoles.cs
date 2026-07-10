@@ -17,6 +17,11 @@ public sealed partial class GoodSamaritanManager
         bool gameStarted = !IsUnityNull(gameManager) && gameManager!.GameStartedSyncVar;
         if (!gameStarted)
         {
+            if (lastGameStarted || playableWitnessNetIds.Count > 0 || playableUndercoverNetIds.Count > 0)
+            {
+                BroadcastAllRolesCleared();
+            }
+
             lastGameStarted = false;
             playableWitnessesAssignedThisRound = false;
             playableUndercoverAssignedThisRound = false;
@@ -36,6 +41,12 @@ public sealed partial class GoodSamaritanManager
         lastGameStarted = true;
         if ((playableWitnessesAssignedThisRound && playableUndercoverAssignedThisRound) || Time.timeAsDouble < nextPlayerAssignmentTime)
         {
+            return;
+        }
+
+        if (!AreNativeRolesReadyForAssignment())
+        {
+            nextPlayerAssignmentTime = Time.timeAsDouble + 1d;
             return;
         }
 
@@ -91,7 +102,11 @@ public sealed partial class GoodSamaritanManager
             }
 
             uint netId = player!.netId;
-            if (netId == 0u || playableWitnessNetIds.Contains(netId) || playableUndercoverNetIds.Contains(netId) || !moddedPlayerNetIds.Contains(netId))
+            if (netId == 0u ||
+                playableWitnessNetIds.Contains(netId) ||
+                playableUndercoverNetIds.Contains(netId) ||
+                !IsRoleSyncCapable(netId) ||
+                GoodSamaritanClientRoleState.IsGameHijacker(player))
             {
                 continue;
             }
@@ -131,6 +146,13 @@ public sealed partial class GoodSamaritanManager
             return true;
         }
 
+        // Native hijacking allegiance is controlled by NetworkisHijacker, so the
+        // smuggler-side undercover role is only valid in the standard game modes.
+        if (IsHijackingModeActive())
+        {
+            return true;
+        }
+
         int maxPlayers = Mathf.Max(0, GoodSamaritanPlugin.Settings.MaxPlayableUndercoverPlayers.Value);
         if (maxPlayers <= 0 || moddedPlayerNetIds.Count == 0)
         {
@@ -160,7 +182,11 @@ public sealed partial class GoodSamaritanManager
             }
 
             uint netId = player!.netId;
-            if (netId == 0u || playableWitnessNetIds.Contains(netId) || playableUndercoverNetIds.Contains(netId) || !moddedPlayerNetIds.Contains(netId))
+            if (netId == 0u ||
+                playableWitnessNetIds.Contains(netId) ||
+                playableUndercoverNetIds.Contains(netId) ||
+                !IsRoleSyncCapable(netId) ||
+                GoodSamaritanClientRoleState.IsGameHijacker(player))
             {
                 continue;
             }
@@ -212,6 +238,7 @@ public sealed partial class GoodSamaritanManager
         }
 
         playableWitnessNetIds.Add(netId);
+        BroadcastRoleAssignment(netId, GoodSamaritanPlayerRole.PlayableWitness);
         playerWitnesses.Add(new PlayerWitnessState(player)
         {
             NextReportTime = Time.timeAsDouble + UnityEngine.Random.Range(1f, 4f)
@@ -241,7 +268,7 @@ public sealed partial class GoodSamaritanManager
         }
 
         playableUndercoverNetIds.Add(netId);
-        GoodSamaritanClientHighlighter.NoteUndercoverAssignment(player);
+        BroadcastRoleAssignment(netId, GoodSamaritanPlayerRole.Undercover);
         ShowTargetIndicator(player, Mathf.Max(2f, GoodSamaritanPlugin.Settings.HighlightSeconds.Value));
         GoodSamaritanPlugin.LogSource.LogInfo($"Assigned undercover player netId {netId}.");
     }
@@ -251,6 +278,11 @@ public sealed partial class GoodSamaritanManager
     {
         if (clearAll)
         {
+            if (playableWitnessNetIds.Count > 0 || playableUndercoverNetIds.Count > 0)
+            {
+                BroadcastAllRolesCleared();
+            }
+
             playerWitnesses.Clear();
             playableWitnessNetIds.Clear();
             playableUndercoverNetIds.Clear();
@@ -267,11 +299,53 @@ public sealed partial class GoodSamaritanManager
                 if (!IsUnityNull(player) && player!.netId != 0u)
                 {
                     alive.Add(player.netId);
+
+                    if (GoodSamaritanClientRoleState.IsGameHijacker(player) &&
+                        (playableWitnessNetIds.Remove(player.netId) || playableUndercoverNetIds.Remove(player.netId)))
+                    {
+                        BroadcastRoleClear(player.netId);
+                        if (player.NetworkisAgent)
+                        {
+                            player.ServerSetIsAgent(false);
+                        }
+
+                        GoodSamaritanPlugin.LogSource.LogWarning($"Removed conflicting playable role from native hijacker netId {player.netId}.");
+                    }
                 }
             }
         }
 
+        var disconnectedRoles = new HashSet<uint>();
+        foreach (uint id in playableWitnessNetIds)
+        {
+            if (!alive.Contains(id))
+            {
+                disconnectedRoles.Add(id);
+            }
+        }
+
+        foreach (uint id in playableUndercoverNetIds)
+        {
+            if (!alive.Contains(id))
+            {
+                disconnectedRoles.Add(id);
+            }
+        }
+
+        foreach (uint id in disconnectedRoles)
+        {
+            BroadcastRoleClear(id);
+        }
+
         moddedPlayerNetIds.RemoveWhere(id => !alive.Contains(id));
+        foreach (uint id in new List<uint>(moddedPlayerVersions.Keys))
+        {
+            if (!alive.Contains(id))
+            {
+                moddedPlayerVersions.Remove(id);
+            }
+        }
+
         playableWitnessNetIds.RemoveWhere(id => !alive.Contains(id));
         playableUndercoverNetIds.RemoveWhere(id => !alive.Contains(id));
 
@@ -352,6 +426,11 @@ public sealed partial class GoodSamaritanManager
             return true;
         }
 
+        if (GoodSamaritanClientRoleState.IsGameHijacker(actor))
+        {
+            return true;
+        }
+
         bool isTsa = actor!.NetworkisAgent;
         if (!isTsa)
         {
@@ -369,6 +448,27 @@ public sealed partial class GoodSamaritanManager
     private static bool IsCivilianAttackEvent(SuspicionEventType eventType)
     {
         return eventType == SuspicionEventType.AttackingCivilian || eventType == SuspicionEventType.TacklingCivilian;
+    }
+
+    [HideFromIl2Cpp]
+    private static bool IsHijackingModeActive()
+    {
+        var gameManager = GameManager.Instance;
+        return !IsUnityNull(gameManager) && gameManager!.ActiveGameMode is HijackingGameMode;
+    }
+
+    [HideFromIl2Cpp]
+    private static bool AreNativeRolesReadyForAssignment()
+    {
+        if (!IsHijackingModeActive())
+        {
+            return true;
+        }
+
+        var hijackingManager = HijackingManager.Instance;
+        return !IsUnityNull(hijackingManager) &&
+               hijackingManager!.serverParticipants != null &&
+               hijackingManager.serverParticipants.Count > 0;
     }
 
     private static void Shuffle(List<PlayerModeManager> players)

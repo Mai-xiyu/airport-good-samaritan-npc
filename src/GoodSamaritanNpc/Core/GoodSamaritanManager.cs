@@ -4,6 +4,7 @@ public sealed partial class GoodSamaritanManager : MonoBehaviour
 {
     private const float ClientHelloRadius = -7391.25f;
     private const string ClientHelloToken = "GSNPC_HELLO_1";
+    private static readonly Version RoleSyncProtocolVersion = new(1, 4, 2);
 
     internal static GoodSamaritanManager Instance;
 
@@ -11,8 +12,10 @@ public sealed partial class GoodSamaritanManager : MonoBehaviour
     private readonly List<PlayerWitnessState> playerWitnesses = new();
     private readonly HashSet<int> evaluatedNpcIds = new();
     private readonly HashSet<uint> moddedPlayerNetIds = new();
+    private readonly Dictionary<uint, string> moddedPlayerVersions = new();
     private readonly HashSet<uint> playableWitnessNetIds = new();
     private readonly HashSet<uint> playableUndercoverNetIds = new();
+    private readonly HashSet<uint> syncedWitnessNpcNetIds = new();
     private readonly Dictionary<int, double> targetCooldownUntil = new();
     private readonly List<NamedArea> namedAreas = new();
     private double nextGlobalReportTime;
@@ -109,7 +112,7 @@ public sealed partial class GoodSamaritanManager : MonoBehaviour
     }
 
     [HideFromIl2Cpp]
-    internal void RegisterModdedPlayer(PlayerModeManager player)
+    internal void RegisterModdedPlayer(PlayerModeManager player, string clientVersion)
     {
         if (!GoodSamaritanPlugin.Settings.Enabled.Value ||
             !GoodSamaritanPlugin.Settings.RequiresModdedClientCapability ||
@@ -125,9 +128,19 @@ public sealed partial class GoodSamaritanManager : MonoBehaviour
             return;
         }
 
-        if (moddedPlayerNetIds.Add(netId))
+        bool wasRoleSyncCapable = IsRoleSyncCapable(netId);
+        bool added = moddedPlayerNetIds.Add(netId);
+        moddedPlayerVersions[netId] = clientVersion ?? string.Empty;
+        bool isRoleSyncCapable = IsRoleSyncCapable(netId);
+
+        if (added)
         {
-            GoodSamaritanPlugin.LogSource.LogDebug($"Registered modded player capability for netId {netId}.");
+            GoodSamaritanPlugin.LogSource.LogDebug($"Registered modded player capability for netId {netId}, version {clientVersion ?? "unknown"}.");
+        }
+
+        if (isRoleSyncCapable && (!wasRoleSyncCapable || added))
+        {
+            SendRoleSnapshot(player);
         }
     }
 
@@ -173,7 +186,7 @@ public sealed partial class GoodSamaritanManager : MonoBehaviour
             if (NetworkServer.active)
             {
                 var pmm = ((Component)pvcm).GetComponent<PlayerModeManager>() ?? ((Component)pvcm).GetComponentInParent<PlayerModeManager>();
-                RegisterModdedPlayer(pmm);
+                RegisterModdedPlayer(pmm, GoodSamaritanPlugin.PluginVersion);
             }
         }
         catch (Exception ex)
@@ -210,8 +223,10 @@ public sealed partial class GoodSamaritanManager : MonoBehaviour
         playerWitnesses.Clear();
         evaluatedNpcIds.Clear();
         moddedPlayerNetIds.Clear();
+        moddedPlayerVersions.Clear();
         playableWitnessNetIds.Clear();
         playableUndercoverNetIds.Clear();
+        syncedWitnessNpcNetIds.Clear();
         targetCooldownUntil.Clear();
         namedAreas.Clear();
         nextGlobalReportTime = 0d;
@@ -242,12 +257,50 @@ public sealed partial class GoodSamaritanManager : MonoBehaviour
             return;
         }
 
+        if (witnesses.Count > 0 || syncedWitnessNpcNetIds.Count > 0)
+        {
+            BroadcastWitnessNpcsCleared();
+        }
+
         witnesses.Clear();
         evaluatedNpcIds.Clear();
+        syncedWitnessNpcNetIds.Clear();
         targetCooldownUntil.Clear();
         extraSpawnedThisManager = 0;
         pendingForcedWitnessMarks = 0;
         lastNpcManagerInstanceId = sourceId;
         RefreshNamedAreas();
+    }
+
+    [HideFromIl2Cpp]
+    private bool IsRoleSyncCapable(uint netId)
+    {
+        return netId != 0u &&
+               moddedPlayerVersions.TryGetValue(netId, out string clientVersion) &&
+               TryParsePluginVersion(clientVersion, out Version parsedVersion) &&
+               parsedVersion >= RoleSyncProtocolVersion;
+    }
+
+    private static bool TryParsePluginVersion(string value, out Version version)
+    {
+        version = null;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        string normalized = value.Trim();
+        if (normalized.StartsWith("v", StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = normalized.Substring(1);
+        }
+
+        int suffixIndex = normalized.IndexOfAny(new[] { '+', '-' });
+        if (suffixIndex >= 0)
+        {
+            normalized = normalized.Substring(0, suffixIndex);
+        }
+
+        return Version.TryParse(normalized, out version);
     }
 }

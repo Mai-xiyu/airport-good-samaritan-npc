@@ -2,7 +2,7 @@
 
 BepInEx 6 IL2CPP mod for **Airport Security Sucks!**.
 
-Current version: `1.4.1`.
+Current version: `1.4.2`.
 
 This branch targets the full Steam release of the game. The bundled reference assemblies under `lib/BepInEx` are generated from the full release, not the old demo.
 
@@ -17,7 +17,9 @@ It adds witness-style civilian NPC behavior without changing the original NPC co
 - Area callout: uses the game's original log and NPC question indicator.
 - Optional playable witness players. Only clients that also have the mod installed can be randomly assigned by a modded host.
 - Playable witnesses are forced onto the TSA/agent faction for win/loss handling.
+- Playable witnesses use the synchronized civilian NPC model on modded clients instead of retaining the Agent model.
 - Optional playable undercover players. They stay on the smuggler win/loss side and are disabled by default.
+- Native hijackers are never converted into playable witnesses or undercovers. Custom undercovers are skipped in hijacking mode because that mode uses a separate native hijacker allegiance flag.
 - TSA/agent and playable-witness actions are ignored by default for ordinary suspicion checks, reducing false reports.
 - Modded clients additionally show a local exclamation marker, blue ally outlines, yellow report outlines/areas, and play a short local alert sound.
 - TSA attacks against witness NPCs still use the original ordinary-NPC attack punishment path.
@@ -81,7 +83,7 @@ False-positive control:
 
 These are local-only visual additions for modded clients. They do not replace the game's original red smuggler outline.
 
-- Blue outline: TSA/agent players, playable witnesses, and known witness NPCs.
+- Blue outline: TSA/agent players, playable witnesses, and synchronized witness NPCs.
 - Yellow outline: witness-reported suspicious players.
 - Yellow floor rectangle: area report when a witness cannot directly identify a target.
 - Undercover players and hijackers in the game's hijacking mode do not see local witness-side or report highlight enhancements.
@@ -92,6 +94,7 @@ Relevant config keys:
 - `ShowReportHighlightsToAllModdedClients`
 - `AreaHighlightSeconds`
 - `HighlightSeconds`
+- `UseCivilianModelForPlayableWitnessPlayers`
 
 ## Source Layout
 
@@ -149,7 +152,7 @@ The workflow builds against `lib/BepInEx` and uploads the compiled plugin, not o
 
 ## Playable Witnesses
 
-Playable witness assignment uses a mod-to-mod handshake over an existing Mirror command. A modded client periodically sends a special no-op voice command payload. A modded host intercepts that payload and marks the player as eligible. Unmodded clients never send it, and unmodded hosts do not run the assignment logic.
+Playable witness assignment uses a mod-to-mod handshake over an existing Mirror command. A modded client periodically sends a special no-op voice command payload. A modded host intercepts that payload and marks the player as eligible. Version `1.4.2` adds private role/NPC identity synchronization for compatible modded clients. Unmodded and older clients are not sent the reserved synchronization commands.
 
 Relevant config keys:
 

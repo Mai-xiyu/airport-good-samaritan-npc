@@ -5,7 +5,6 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
     private static readonly Color AllyBlue = new(0.1f, 0.55f, 1f, 1f);
     private static readonly Color SuspiciousYellow = new(1f, 0.82f, 0.08f, 1f);
     private static readonly Color AreaYellow = new(1f, 0.78f, 0.05f, 0.28f);
-    private static readonly HashSet<uint> LocalUndercoverNetIds = new();
     private static bool localHijacker;
 
     internal static GoodSamaritanClientHighlighter Instance;
@@ -37,6 +36,7 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
         if (!NetworkClient.active)
         {
             localHijacker = false;
+            GoodSamaritanClientRoleState.ClearAll(false);
         }
 
         if (!GoodSamaritanPlugin.Settings.Enabled.Value || !NetworkClient.active)
@@ -44,6 +44,7 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
             return;
         }
 
+        GoodSamaritanClientRoleState.RefreshPendingVisuals();
         teamScanTimer -= Time.deltaTime;
         if (teamScanTimer > 0f)
         {
@@ -52,14 +53,6 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
 
         teamScanTimer = 1f;
         UpdateTeamHighlights();
-    }
-
-    internal static void NoteUndercoverAssignment(PlayerModeManager player)
-    {
-        if (!GoodSamaritanManager.IsUnityNull(player) && player!.netId != 0u)
-        {
-            LocalUndercoverNetIds.Add(player.netId);
-        }
     }
 
     internal static void NoteLocalHijackerRole(bool isHijacker)
@@ -134,7 +127,7 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
         }
 
         var local = FindLocalPlayer();
-        if (GoodSamaritanManager.IsUnityNull(local) || !local!.NetworkisAgent || IsLocalUndercover(local) || localHijacker)
+        if (GoodSamaritanManager.IsUnityNull(local) || !local!.NetworkisAgent || IsLocalUndercover(local) || IsLocalHijacker(local))
         {
             return;
         }
@@ -173,6 +166,21 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
                 ShowComponent(witness.SourceOrSelf, GoodSamaritanHighlightKind.Ally, 1.35f);
             }
         }
+
+        var networkObjects = Object.FindObjectsOfType<NetworkIdentity>();
+        if (networkObjects == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < networkObjects.Length; i++)
+        {
+            var identity = networkObjects[i];
+            if (!GoodSamaritanManager.IsUnityNull(identity) && GoodSamaritanClientRoleState.IsWitnessNpc(identity))
+            {
+                ShowComponent(identity, GoodSamaritanHighlightKind.Ally, 1.35f);
+            }
+        }
     }
 
     internal static bool CanShowAllyFeedbackToLocal()
@@ -188,7 +196,7 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
             return false;
         }
 
-        return local!.NetworkisAgent && !IsLocalUndercover(local) && !localHijacker;
+        return local!.NetworkisAgent && !IsLocalUndercover(local) && !IsLocalHijacker(local);
     }
 
     internal static bool CanShowReportFeedbackToLocal()
@@ -204,7 +212,7 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
             return false;
         }
 
-        return !IsLocalUndercover(local!) && !localHijacker;
+        return !IsLocalUndercover(local!) && !IsLocalHijacker(local);
     }
 
     private static bool IsLocalUndercover(PlayerModeManager local)
@@ -214,12 +222,17 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
             return false;
         }
 
-        if (LocalUndercoverNetIds.Contains(local.netId))
+        if (GoodSamaritanClientRoleState.GetRole(local) == GoodSamaritanPlayerRole.Undercover)
         {
             return true;
         }
 
         return GoodSamaritanManager.Instance != null && GoodSamaritanManager.Instance.IsUndercover(local);
+    }
+
+    private static bool IsLocalHijacker(PlayerModeManager local)
+    {
+        return localHijacker || GoodSamaritanClientRoleState.IsGameHijacker(local);
     }
 
     private static PlayerModeManager FindLocalPlayer()

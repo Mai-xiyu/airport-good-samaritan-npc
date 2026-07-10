@@ -8,6 +8,7 @@ public sealed partial class GoodSamaritanManager
         SpawnConfiguredExtraWitnesses();
         MarkExistingNpcs();
         CleanupWitnessList();
+        SyncWitnessNpcIdentities();
     }
 
     [HideFromIl2Cpp]
@@ -44,9 +45,13 @@ public sealed partial class GoodSamaritanManager
                 break;
             }
 
+            int previousCount = manager.serverNpcs?.Count ?? 0;
             manager.ServerSpawnNpc(spawn, true);
             extraSpawnedThisManager++;
-            pendingForcedWitnessMarks++;
+            if (!TryMarkNewAirportNpcs(manager, previousCount))
+            {
+                pendingForcedWitnessMarks++;
+            }
         }
     }
 
@@ -61,10 +66,75 @@ public sealed partial class GoodSamaritanManager
                 break;
             }
 
+            int previousCount = hijackingNpcs.serverNpcs?.Count ?? 0;
             hijackingNpcs.ServerSpawnNpc(spawn);
             extraSpawnedThisManager++;
-            pendingForcedWitnessMarks++;
+            if (!TryMarkNewHijackingNpcs(hijackingNpcs, previousCount))
+            {
+                pendingForcedWitnessMarks++;
+            }
         }
+    }
+
+    [HideFromIl2Cpp]
+    private bool TryMarkNewAirportNpcs(NpcManager manager, int previousCount)
+    {
+        var serverNpcs = manager.serverNpcs;
+        if (serverNpcs == null || serverNpcs.Count <= previousCount)
+        {
+            return false;
+        }
+
+        bool marked = false;
+        for (int i = Mathf.Max(0, previousCount); i < serverNpcs.Count; i++)
+        {
+            marked |= TryAddSpawnedWitness(serverNpcs[i]);
+        }
+
+        return marked;
+    }
+
+    [HideFromIl2Cpp]
+    private bool TryMarkNewHijackingNpcs(HijackingNpcs manager, int previousCount)
+    {
+        var serverNpcs = manager.serverNpcs;
+        if (serverNpcs == null || serverNpcs.Count <= previousCount)
+        {
+            return false;
+        }
+
+        bool marked = false;
+        for (int i = Mathf.Max(0, previousCount); i < serverNpcs.Count; i++)
+        {
+            marked |= TryAddSpawnedWitness(serverNpcs[i]);
+        }
+
+        return marked;
+    }
+
+    [HideFromIl2Cpp]
+    private bool TryAddSpawnedWitness(GameObject gameObject)
+    {
+        if (IsUnityNull(gameObject))
+        {
+            return false;
+        }
+
+        Component source = gameObject!.GetComponent<NpcAiController>();
+        source ??= gameObject.GetComponent<PlaneWanderNpcAi>();
+        source ??= gameObject.GetComponent<NpcRagdollManager>();
+        if (IsUnityNull(source))
+        {
+            return false;
+        }
+
+        evaluatedNpcIds.Add(gameObject.GetInstanceID());
+        if (!HasWitness(source))
+        {
+            AddWitness(source);
+        }
+
+        return true;
     }
 
     [HideFromIl2Cpp]
@@ -168,6 +238,19 @@ public sealed partial class GoodSamaritanManager
             if (IsUnityNull(witness) || IsUnityNull(witness!.SourceOrSelf))
             {
                 witnesses.RemoveAt(i);
+            }
+        }
+    }
+
+    [HideFromIl2Cpp]
+    private void SyncWitnessNpcIdentities()
+    {
+        for (int i = 0; i < witnesses.Count; i++)
+        {
+            uint netId = GetWitnessNetworkId(witnesses[i]);
+            if (netId != 0u && syncedWitnessNpcNetIds.Add(netId))
+            {
+                BroadcastWitnessNpcAssignment(netId);
             }
         }
     }
