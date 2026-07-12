@@ -2,7 +2,7 @@
 
 BepInEx 6 IL2CPP mod for **Airport Security Sucks!**.
 
-Current version: `1.4.2`.
+Current version: `1.4.3`.
 
 This branch targets the full Steam release of the game. The bundled reference assemblies under `lib/BepInEx` are generated from the full release, not the old demo.
 
@@ -25,6 +25,7 @@ It adds witness-style civilian NPC behavior without changing the original NPC co
 - TSA attacks against witness NPCs still use the original ordinary-NPC attack punishment path.
 - Undercover attacks against NPCs bypass the original self-jail side effect while still allowing witness reports.
 - Localized report text.
+- Host-side population and role maintenance is throttled to one pass per second. Suspicion state is calculated once per scan and skipped entirely during the global report cooldown.
 
 ## Supported Languages
 
@@ -152,7 +153,7 @@ The workflow builds against `lib/BepInEx` and uploads the compiled plugin, not o
 
 ## Playable Witnesses
 
-Playable witness assignment uses a mod-to-mod handshake over an existing Mirror command. A modded client periodically sends a special no-op voice command payload. A modded host intercepts that payload and marks the player as eligible. Version `1.4.2` adds private role/NPC identity synchronization for compatible modded clients. Unmodded and older clients are not sent the reserved synchronization commands.
+Playable witness assignment uses a mod-to-mod handshake over an existing Mirror command. A modded client periodically sends a special no-op voice command payload. A modded host intercepts that payload and marks the player as eligible. Version `1.4.2` added private role/NPC identity synchronization for compatible modded clients. Unmodded and older clients are not sent the reserved synchronization commands.
 
 Relevant config keys:
 

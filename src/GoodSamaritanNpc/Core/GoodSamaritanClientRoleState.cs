@@ -108,15 +108,18 @@ internal static class GoodSamaritanClientRoleState
         return !GoodSamaritanManager.IsUnityNull(metaPlayer) && metaPlayer!.NetworkisHijacker;
     }
 
-    internal static bool IsWitnessNpc(Component component)
+    internal static bool IsWitnessNpc(uint netId)
     {
-        if (GoodSamaritanManager.IsUnityNull(component))
-        {
-            return false;
-        }
+        return netId != 0u && WitnessNpcNetIds.Contains(netId);
+    }
 
-        var identity = component!.GetComponent<NetworkIdentity>() ?? component.GetComponentInParent<NetworkIdentity>();
-        return !GoodSamaritanManager.IsUnityNull(identity) && WitnessNpcNetIds.Contains(identity!.netId);
+    internal static void CopyWitnessNpcNetIds(List<uint> destination)
+    {
+        destination.Clear();
+        foreach (uint netId in WitnessNpcNetIds)
+        {
+            destination.Add(netId);
+        }
     }
 
     internal static void RefreshPendingVisuals()

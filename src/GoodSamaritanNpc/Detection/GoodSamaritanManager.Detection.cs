@@ -3,13 +3,32 @@ namespace GoodSamaritanNpc;
 public sealed partial class GoodSamaritanManager
 {
     [HideFromIl2Cpp]
-    private WitnessReport FindReportForWitness(GoodSamaritanWitness witness)
+    private void BuildSuspiciousPlayerSnapshot()
     {
+        suspiciousPlayers.Clear();
         var players = Object.FindObjectsOfType<PlayerModeManager>();
         if (players == null)
         {
-            return default;
+            return;
         }
+
+        Il2CppArrayBase<NpcLine> lines = GoodSamaritanPlugin.Settings.ShouldDetectLineCutting
+            ? Object.FindObjectsOfType<NpcLine>()
+            : null;
+
+        for (int i = 0; i < players.Length; i++)
+        {
+            var player = players[i];
+            if (!IsUnityNull(player) && TryGetSuspicionReason(player, lines, out string reason))
+            {
+                suspiciousPlayers.Add(new SuspiciousPlayer(player, reason));
+            }
+        }
+    }
+
+    [HideFromIl2Cpp]
+    private WitnessReport FindReportForWitness(GoodSamaritanWitness witness, List<SuspiciousPlayer> candidates)
+    {
 
         Vector3 witnessPos = GetWitnessEyePosition(witness);
         float radius = Mathf.Max(1f, GoodSamaritanPlugin.Settings.WitnessRadius.Value);
@@ -17,18 +36,16 @@ public sealed partial class GoodSamaritanManager
         string areaReason = GoodSamaritanText.Get(Msg.SuspiciousBehavior);
         float bestAreaDistSqr = float.MaxValue;
 
-        for (int i = 0; i < players.Length; i++)
+        for (int i = 0; i < candidates.Count; i++)
         {
-            var player = players[i];
+            var candidate = candidates[i];
+            var player = candidate.Player;
             if (IsUnityNull(player))
             {
                 continue;
             }
 
-            if (!TryGetSuspicionReason(player, out string reason))
-            {
-                continue;
-            }
+            string reason = candidate.Reason;
 
             var playerTransform = ((Component)player).transform;
             float distSqr = (playerTransform.position - witnessPos).sqrMagnitude;
@@ -56,9 +73,8 @@ public sealed partial class GoodSamaritanManager
     }
 
     [HideFromIl2Cpp]
-    private void ScanPlayerWitnesses()
+    private void ScanPlayerWitnesses(List<SuspiciousPlayer> candidates)
     {
-        CleanupPlayableRoles(false);
         for (int i = 0; i < playerWitnesses.Count; i++)
         {
             var witness = playerWitnesses[i];
@@ -67,7 +83,7 @@ public sealed partial class GoodSamaritanManager
                 continue;
             }
 
-            var report = FindReportForPlayerWitness(witness);
+            var report = FindReportForPlayerWitness(witness, candidates);
             if (report.Target != null)
             {
                 ReportDirectTarget(witness, report.Target, report.Reason);
@@ -80,10 +96,9 @@ public sealed partial class GoodSamaritanManager
     }
 
     [HideFromIl2Cpp]
-    private WitnessReport FindReportForPlayerWitness(PlayerWitnessState witness)
+    private WitnessReport FindReportForPlayerWitness(PlayerWitnessState witness, List<SuspiciousPlayer> candidates)
     {
-        var players = Object.FindObjectsOfType<PlayerModeManager>();
-        if (players == null || IsUnityNull(witness.Player))
+        if (IsUnityNull(witness.Player))
         {
             return default;
         }
@@ -95,9 +110,10 @@ public sealed partial class GoodSamaritanManager
         string areaReason = GoodSamaritanText.Get(Msg.SuspiciousBehavior);
         float bestAreaDistSqr = float.MaxValue;
 
-        for (int i = 0; i < players.Length; i++)
+        for (int i = 0; i < candidates.Count; i++)
         {
-            var player = players[i];
+            var candidate = candidates[i];
+            var player = candidate.Player;
             if (IsUnityNull(player) || player == witness.Player)
             {
                 continue;
@@ -110,10 +126,7 @@ public sealed partial class GoodSamaritanManager
                 continue;
             }
 
-            if (!TryGetSuspicionReason(player, out string reason))
-            {
-                continue;
-            }
+            string reason = candidate.Reason;
 
             if (GoodSamaritanPlugin.Settings.DirectTargetReportsEnabled && IsDirectlyVisible(witnessPos, witnessTransform.forward, playerTransform) && CanReportTarget(player))
             {
@@ -134,7 +147,7 @@ public sealed partial class GoodSamaritanManager
     }
 
     [HideFromIl2Cpp]
-    private bool TryGetSuspicionReason(PlayerModeManager player, out string reason)
+    private bool TryGetSuspicionReason(PlayerModeManager player, Il2CppArrayBase<NpcLine> lines, out string reason)
     {
         reason = GoodSamaritanText.Get(Msg.SuspiciousBehavior);
         if (!ShouldReportActorForEvent(player, SuspicionEventType.PassiveScan))
@@ -187,7 +200,7 @@ public sealed partial class GoodSamaritanManager
             }
         }
 
-        if (GoodSamaritanPlugin.Settings.ShouldDetectLineCutting && IsLikelyCuttingLine(player))
+        if (GoodSamaritanPlugin.Settings.ShouldDetectLineCutting && IsLikelyCuttingLine(player, lines))
         {
             reason = GoodSamaritanText.Get(Msg.CuttingLine);
             return true;
@@ -197,14 +210,13 @@ public sealed partial class GoodSamaritanManager
     }
 
     [HideFromIl2Cpp]
-    private bool IsLikelyCuttingLine(PlayerModeManager player)
+    private bool IsLikelyCuttingLine(PlayerModeManager player, Il2CppArrayBase<NpcLine> lines)
     {
         if (IsUnityNull(player))
         {
             return false;
         }
 
-        var lines = Object.FindObjectsOfType<NpcLine>();
         if (lines == null)
         {
             return false;
@@ -348,5 +360,17 @@ public sealed partial class GoodSamaritanManager
         }
 
         return false;
+    }
+
+    private readonly struct SuspiciousPlayer
+    {
+        internal readonly PlayerModeManager Player;
+        internal readonly string Reason;
+
+        internal SuspiciousPlayer(PlayerModeManager player, string reason)
+        {
+            Player = player;
+            Reason = reason;
+        }
     }
 }

@@ -4,6 +4,7 @@ public sealed partial class GoodSamaritanManager : MonoBehaviour
 {
     private const float ClientHelloRadius = -7391.25f;
     private const string ClientHelloToken = "GSNPC_HELLO_1";
+    private const float ServerMaintenanceIntervalSeconds = 1f;
     private static readonly Version RoleSyncProtocolVersion = new(1, 4, 2);
 
     internal static GoodSamaritanManager Instance;
@@ -18,9 +19,11 @@ public sealed partial class GoodSamaritanManager : MonoBehaviour
     private readonly HashSet<uint> syncedWitnessNpcNetIds = new();
     private readonly Dictionary<int, double> targetCooldownUntil = new();
     private readonly List<NamedArea> namedAreas = new();
+    private readonly List<SuspiciousPlayer> suspiciousPlayers = new();
     private double nextGlobalReportTime;
     private double nextPlayerAssignmentTime;
     private float scanTimer;
+    private float serverMaintenanceTimer;
     private float clientHelloTimer;
     private float areaRefreshTimer;
     private int lastNpcManagerInstanceId;
@@ -30,6 +33,7 @@ public sealed partial class GoodSamaritanManager : MonoBehaviour
     private bool lastGameStarted;
     private bool playableWitnessesAssignedThisRound;
     private bool playableUndercoverAssignedThisRound;
+    private bool populationFallbackScanCompleted;
 
     public GoodSamaritanManager(IntPtr ptr) : base(ptr)
     {
@@ -68,9 +72,14 @@ public sealed partial class GoodSamaritanManager : MonoBehaviour
         }
 
         serverWasActive = true;
-        UpdatePlayableWitnessAssignments();
-        EnsureServerNpcManagerState();
-        EnsureWitnessPopulation();
+        serverMaintenanceTimer -= Time.deltaTime;
+        if (serverMaintenanceTimer <= 0f)
+        {
+            serverMaintenanceTimer = ServerMaintenanceIntervalSeconds;
+            UpdatePlayableWitnessAssignments();
+            EnsureServerNpcManagerState();
+            EnsureWitnessPopulation();
+        }
 
         scanTimer -= Time.deltaTime;
         if (scanTimer > 0f)
@@ -95,7 +104,6 @@ public sealed partial class GoodSamaritanManager : MonoBehaviour
             return;
         }
 
-        EnsureWitnessPopulation();
         var witness = FindNearestReadyWitness(eventPosition);
         if (IsUnityNull(witness))
         {
@@ -229,9 +237,11 @@ public sealed partial class GoodSamaritanManager : MonoBehaviour
         syncedWitnessNpcNetIds.Clear();
         targetCooldownUntil.Clear();
         namedAreas.Clear();
+        suspiciousPlayers.Clear();
         nextGlobalReportTime = 0d;
         nextPlayerAssignmentTime = 0d;
         scanTimer = 0f;
+        serverMaintenanceTimer = 0f;
         clientHelloTimer = 0f;
         areaRefreshTimer = 0f;
         lastNpcManagerInstanceId = 0;
@@ -241,6 +251,7 @@ public sealed partial class GoodSamaritanManager : MonoBehaviour
         lastGameStarted = false;
         playableWitnessesAssignedThisRound = false;
         playableUndercoverAssignedThisRound = false;
+        populationFallbackScanCompleted = false;
     }
 
     [HideFromIl2Cpp]
@@ -268,6 +279,7 @@ public sealed partial class GoodSamaritanManager : MonoBehaviour
         targetCooldownUntil.Clear();
         extraSpawnedThisManager = 0;
         pendingForcedWitnessMarks = 0;
+        populationFallbackScanCompleted = false;
         lastNpcManagerInstanceId = sourceId;
         RefreshNamedAreas();
     }

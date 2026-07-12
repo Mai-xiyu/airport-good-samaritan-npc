@@ -140,6 +140,39 @@ public sealed partial class GoodSamaritanManager
     [HideFromIl2Cpp]
     private void MarkExistingNpcs()
     {
+        bool hasServerList = false;
+        var hijackingNpcs = GetHijackingNpcs();
+        if (IsActiveComponent(hijackingNpcs) && hijackingNpcs!.serverNpcs != null)
+        {
+            hasServerList = true;
+            for (int i = 0; i < hijackingNpcs.serverNpcs.Count; i++)
+            {
+                TryEvaluateWitnessGameObject(hijackingNpcs.serverNpcs[i]);
+            }
+        }
+        else
+        {
+            var manager = GetNpcManager();
+            if (!IsUnityNull(manager) && manager!.serverNpcs != null)
+            {
+                hasServerList = true;
+                for (int i = 0; i < manager.serverNpcs.Count; i++)
+                {
+                    TryEvaluateWitnessGameObject(manager.serverNpcs[i]);
+                }
+            }
+        }
+
+        if (!hasServerList && !populationFallbackScanCompleted)
+        {
+            populationFallbackScanCompleted = true;
+            MarkExistingNpcsFallback();
+        }
+    }
+
+    [HideFromIl2Cpp]
+    private void MarkExistingNpcsFallback()
+    {
         var npcs = Object.FindObjectsOfType<NpcAiController>();
         if (npcs != null)
         {
@@ -149,21 +182,40 @@ public sealed partial class GoodSamaritanManager
             }
         }
 
-        MarkPlaneNpcs();
+        var planeNpcs = Object.FindObjectsOfType<PlaneWanderNpcAi>();
+        if (planeNpcs != null)
+        {
+            for (int i = 0; i < planeNpcs.Length; i++)
+            {
+                TryEvaluateWitnessSource(planeNpcs[i]);
+            }
+        }
     }
 
     [HideFromIl2Cpp]
-    private void MarkPlaneNpcs()
+    private void TryEvaluateWitnessGameObject(GameObject gameObject)
     {
-        var planeNpcs = Object.FindObjectsOfType<PlaneWanderNpcAi>();
-        if (planeNpcs == null)
+        if (IsUnityNull(gameObject))
         {
             return;
         }
 
-        for (int i = 0; i < planeNpcs.Length; i++)
+        int rootId = gameObject!.GetInstanceID();
+        if (evaluatedNpcIds.Contains(rootId))
         {
-            TryEvaluateWitnessSource(planeNpcs[i]);
+            return;
+        }
+
+        Component source = gameObject.GetComponent<NpcAiController>();
+        source ??= gameObject.GetComponent<PlaneWanderNpcAi>();
+        source ??= gameObject.GetComponent<NpcRagdollManager>();
+        source ??= gameObject.GetComponentInChildren<NpcAiController>(true);
+        source ??= gameObject.GetComponentInChildren<PlaneWanderNpcAi>(true);
+        source ??= gameObject.GetComponentInChildren<NpcRagdollManager>(true);
+        if (!IsUnityNull(source))
+        {
+            TryEvaluateWitnessSource(source);
+            evaluatedNpcIds.Add(rootId);
         }
     }
 
@@ -259,6 +311,12 @@ public sealed partial class GoodSamaritanManager
     private void ScanWitnesses()
     {
         CleanupWitnessList();
+        if ((witnesses.Count == 0 && playerWitnesses.Count == 0) || Time.timeAsDouble < nextGlobalReportTime)
+        {
+            return;
+        }
+
+        BuildSuspiciousPlayerSnapshot();
         foreach (var witness in witnesses)
         {
             if (!CanWitnessReport(witness))
@@ -266,7 +324,7 @@ public sealed partial class GoodSamaritanManager
                 continue;
             }
 
-            var report = FindReportForWitness(witness);
+            var report = FindReportForWitness(witness, suspiciousPlayers);
             if (report.Target != null)
             {
                 ReportDirectTarget(witness, report.Target, report.Reason);
@@ -277,6 +335,6 @@ public sealed partial class GoodSamaritanManager
             }
         }
 
-        ScanPlayerWitnesses();
+        ScanPlayerWitnesses(suspiciousPlayers);
     }
 }

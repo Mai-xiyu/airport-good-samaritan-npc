@@ -6,10 +6,12 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
     private static readonly Color SuspiciousYellow = new(1f, 0.82f, 0.08f, 1f);
     private static readonly Color AreaYellow = new(1f, 0.78f, 0.05f, 0.28f);
     private static bool localHijacker;
+    private static PlayerModeManager cachedLocalPlayer;
 
     internal static GoodSamaritanClientHighlighter Instance;
 
     private readonly List<AreaHighlight> areaHighlights = new();
+    private readonly List<uint> witnessNpcNetIds = new();
     private float teamScanTimer;
     private Material areaMaterial;
 
@@ -36,6 +38,7 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
         if (!NetworkClient.active)
         {
             localHijacker = false;
+            cachedLocalPlayer = null;
             GoodSamaritanClientRoleState.ClearAll(false);
         }
 
@@ -97,6 +100,11 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
             return;
         }
 
+        ShowComponentUnchecked(component, kind, seconds);
+    }
+
+    private static void ShowComponentUnchecked(Component component, GoodSamaritanHighlightKind kind, float seconds)
+    {
         var target = component!.gameObject.GetComponent<GoodSamaritanHighlightTarget>();
         if (GoodSamaritanManager.IsUnityNull(target))
         {
@@ -148,37 +156,22 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
 
             if (player!.NetworkisAgent)
             {
-                ShowPlayer(player, GoodSamaritanHighlightKind.Ally, 1.35f);
+                ShowComponentUnchecked(player, GoodSamaritanHighlightKind.Ally, 1.35f);
             }
         }
 
-        var witnesses = Object.FindObjectsOfType<GoodSamaritanWitness>();
-        if (witnesses == null)
+        var spawned = NetworkClient.spawned;
+        if (spawned == null)
         {
             return;
         }
 
-        for (int i = 0; i < witnesses.Length; i++)
+        GoodSamaritanClientRoleState.CopyWitnessNpcNetIds(witnessNpcNetIds);
+        for (int i = 0; i < witnessNpcNetIds.Count; i++)
         {
-            var witness = witnesses[i];
-            if (!GoodSamaritanManager.IsUnityNull(witness) && !GoodSamaritanManager.IsUnityNull(witness!.SourceOrSelf))
+            if (spawned.TryGetValue(witnessNpcNetIds[i], out NetworkIdentity identity) && !GoodSamaritanManager.IsUnityNull(identity))
             {
-                ShowComponent(witness.SourceOrSelf, GoodSamaritanHighlightKind.Ally, 1.35f);
-            }
-        }
-
-        var networkObjects = Object.FindObjectsOfType<NetworkIdentity>();
-        if (networkObjects == null)
-        {
-            return;
-        }
-
-        for (int i = 0; i < networkObjects.Length; i++)
-        {
-            var identity = networkObjects[i];
-            if (!GoodSamaritanManager.IsUnityNull(identity) && GoodSamaritanClientRoleState.IsWitnessNpc(identity))
-            {
-                ShowComponent(identity, GoodSamaritanHighlightKind.Ally, 1.35f);
+                ShowComponentUnchecked(identity, GoodSamaritanHighlightKind.Ally, 1.35f);
             }
         }
     }
@@ -237,6 +230,12 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
 
     private static PlayerModeManager FindLocalPlayer()
     {
+        if (!GoodSamaritanManager.IsUnityNull(cachedLocalPlayer) && cachedLocalPlayer!.isLocalPlayer)
+        {
+            return cachedLocalPlayer;
+        }
+
+        cachedLocalPlayer = null;
         var players = Object.FindObjectsOfType<PlayerModeManager>();
         if (players == null)
         {
@@ -248,7 +247,8 @@ public sealed class GoodSamaritanClientHighlighter : MonoBehaviour
             var player = players[i];
             if (!GoodSamaritanManager.IsUnityNull(player) && player!.isLocalPlayer)
             {
-                return player;
+                cachedLocalPlayer = player;
+                return cachedLocalPlayer;
             }
         }
 
